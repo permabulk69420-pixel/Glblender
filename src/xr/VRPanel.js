@@ -14,7 +14,7 @@ export class VRPanel {
     this.texture=new THREE.CanvasTexture(this.canvas);this.texture.colorSpace=THREE.SRGBColorSpace;this.texture.minFilter=THREE.LinearFilter;this.texture.generateMipmaps=false;
     this.mesh=new THREE.Mesh(new THREE.PlaneGeometry(.52,.52*HEIGHT/WIDTH),new THREE.MeshBasicMaterial({map:this.texture,transparent:false,side:THREE.DoubleSide,depthTest:false,toneMapped:false}));
     this.mesh.renderOrder=100;this.mesh.position.set(-.72,1.36,-.8);this.mesh.rotation.y=.5;this.mesh.visible=false;editor.workshop.scene.add(this.mesh);
-    this.tab='edit';this.page=0;this.dirty=true;this.regions=[];this.hover=null;this.drag=null;this.colorTarget='color';this.hue=0;this.lastDraw=0;this.notice='';this.noticeUntil=0;
+    this.tab='edit';this.page=0;this.dirty=true;this.regions=[];this.hover=null;this.drag=null;this.colorTarget='color';this.hue=0;this.savedColours=[];this.lastDraw=0;this.notice='';this.noticeUntil=0;
   }
   invalidate() {this.dirty=true;}
   message(text) {this.notice=text;this.noticeUntil=performance.now()+4500;this.invalidate();}
@@ -79,10 +79,13 @@ export class VRPanel {
     g=c.createLinearGradient(x,0,x+w,0);for(let i=0;i<=6;i++)g.addColorStop(i/6,`hsl(${i*60},100%,50%)`);c.fillStyle=g;c.fillRect(x,436,w,27);
     const hue=px=>{this.hue=THREE.MathUtils.clamp((px-x)/w,0,1);e.setMaterial(target,hsvHex(this.hue,Math.max(hsv.s,.4),Math.max(hsv.v,.5)),false);};
     this.regions.push({id:'color-hue',x,y:429,w,h:41,disabled:locked,down:hue,move:hue,up:()=>e.materials.end()});
-    PALETTE.forEach((value,i)=>{const sx=36+i*87;this.rect(sx,484,69,37,value,5);this.regions.push({id:'swatch-'+i,x:sx,y:484,w:69,h:37,disabled:locked,down:()=>e.setMaterial(target,value,true)});});
-    this.slider('metal','Metallic',m.metalness??0,0,1,559,v=>e.setMaterial('metalness',v),{material:true,disabled:locked});
-    this.slider('rough','Roughness',m.roughness??1,0,1,637,v=>e.setMaterial('roughness',v),{material:true,disabled:locked});
-    this.slider('third',target==='emissive'?'Emission strength':'Opacity',target==='emissive'?(m.emissiveIntensity??1):(m.opacity??1),0,target==='emissive'?5:1,715,v=>e.setMaterial(target==='emissive'?'emissiveIntensity':'opacity',v),{material:true,disabled:locked});
+    const palette=[...this.savedColours,...PALETTE.filter(value=>!this.savedColours.includes(value))].slice(0,8);
+    palette.forEach((value,i)=>{const sx=36+i*87;this.rect(sx,484,69,37,value,5);this.regions.push({id:'swatch-'+i,x:sx,y:484,w:69,h:37,disabled:locked,down:()=>e.setMaterial(target,value,true)});});
+    this.button('save-colour','Save current colour',32,528,222,31,()=>{const value='#'+(materialsOf(e.selection.selected)[e.ui.materialIndex]?.[target]?.getHexString()||'000000');this.savedColours=[value,...this.savedColours.filter(c=>c!==value)].slice(0,8);this.message(`${value.toUpperCase()} saved to palette`);},{disabled:locked});
+    this.text(this.savedColours.length?'Saved colours appear first in the palette':'Save a colour, then reuse it on another part',273,551,17,MUTED);
+    this.slider('metal','Metallic',m.metalness??0,0,1,582,v=>e.setMaterial('metalness',v),{material:true,disabled:locked});
+    this.slider('rough','Roughness',m.roughness??1,0,1,652,v=>e.setMaterial('roughness',v),{material:true,disabled:locked});
+    this.slider('third',target==='emissive'?'Emission strength':'Opacity',target==='emissive'?(m.emissiveIntensity??1):(m.opacity??1),0,target==='emissive'?5:1,722,v=>e.setMaterial(target==='emissive'?'emissiveIntensity':'opacity',v),{material:true,disabled:locked});
     this.button('slot',`Material ${e.ui.materialIndex+1}/${mats.length}: ${this.truncate(m.name||'Surface',26)}`,32,775,WIDTH-64,34,()=>{e.materials.end();e.ui.materialIndex=(e.ui.materialIndex+1)%mats.length;this.invalidate();});
   }
   drawShape(n,locked) {
