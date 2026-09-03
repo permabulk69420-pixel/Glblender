@@ -88,7 +88,7 @@ export class VRInteractionManager {
   }
   finishAll() {for(const hand of this.hands){this.release(hand);if(hand.sculpt)this.endSculpt(hand);this.panel.up(hand.index);hand.ui=false;hand.dot.visible=false;hand.previous=[];}this.e.interacting=false;}
   placePanel() {
-    const camera=this.e.workshop.renderer.xr.getCamera();camera.getWorldPosition(this.head);camera.getWorldDirection(this.forward);this.forward.y=0;this.forward.normalize();this.q.setFromAxisAngle(this.up,Math.atan2(-this.forward.x,-this.forward.z));
+    const camera=this.e.workshop.camera;camera.getWorldPosition(this.head);camera.getWorldDirection(this.forward);this.forward.y=0;this.forward.normalize();this.q.setFromAxisAngle(this.up,Math.atan2(-this.forward.x,-this.forward.z));
     this.panel.mesh.position.set(-.64,-.17,-.85).applyQuaternion(this.q).add(this.head);this.panel.mesh.lookAt(this.head);this.panel.mesh.updateWorldMatrix(true,false);
   }
   recenter() {this.e.workshop.recenter();this.pendingPanel=2;}
@@ -99,13 +99,13 @@ export class VRInteractionManager {
     if(this.e.interacting||this.panel.drag||this.e.busy)return;
     const offset=gamepad.axes.length>=4?2:0,x=gamepad.axes[offset]||0,y=gamepad.axes[offset+1]||0;
     if(side==='left'&&(Math.abs(x)>.15||Math.abs(y)>.15)) {
-      const camera=this.e.workshop.renderer.xr.getCamera();camera.getWorldDirection(this.forward);this.forward.y=0;this.forward.normalize();this.right.crossVectors(this.forward,this.up);
+      const camera=this.e.workshop.camera;camera.getWorldDirection(this.forward);this.forward.y=0;this.forward.normalize();this.right.crossVectors(this.forward,this.up);
       const rig=this.e.workshop.cameraRig;rig.position.addScaledVector(this.forward,-y*dt*1.1).addScaledVector(this.right,x*dt*1.1);
     }
     if(side==='right') {
       if(this.e.mode==='shape'&&Math.abs(y)>.2){this.e.shape.radius=THREE.MathUtils.clamp(this.e.shape.radius*Math.exp(-y*dt*1.4),.01,100);this.panel.invalidate();}
       if(this.e.mode==='object'&&Math.abs(x)>.65&&time-this.lastTurn>350){
-        const rig=this.e.workshop.cameraRig,camera=this.e.workshop.renderer.xr.getCamera();camera.getWorldPosition(this.head);const angle=-Math.sign(x)*Math.PI/6;
+        const rig=this.e.workshop.cameraRig,camera=this.e.workshop.camera;camera.getWorldPosition(this.head);const angle=-Math.sign(x)*Math.PI/6;
         rig.position.sub(this.head).applyAxisAngle(this.up,angle).add(this.head);rig.rotation.y+=angle;this.lastTurn=time;
       }
     }
