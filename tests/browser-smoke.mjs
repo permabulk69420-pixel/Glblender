@@ -61,6 +61,7 @@ try{
   await page.locator('.inspector-tabs [data-tab="material"]').click();await page.waitForTimeout(300);await page.screenshot({path:'test-results/workshop-final.png'});
   await page.setViewportSize({width:390,height:844});await page.locator('[data-action="inspector-panel"]').click();await page.screenshot({path:'test-results/mobile-inspector.png'});
   assert.equal(await page.locator('.inspector-panel').isVisible(),true);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));checks.push('Phone layout exposes import and inspector without horizontal overflow');
+  assert.equal((await page.locator('#stats').textContent()).match(/(\d+)materials/)?.[1],'6');checks.push('Material sharing survives repeated export and recovery');
   assert.deepEqual(errors,[]);checks.push('No JavaScript runtime errors or console errors');
   await writeFile('test-results/results.json',JSON.stringify({passed:true,checks,errors},null,2));console.log(checks.map(c=>'PASS '+c).join('\n'));
 }catch(error){

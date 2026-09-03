@@ -8,6 +8,7 @@ import { assetBounds } from '../src/core/utils.js';
 import { MaterialEditor } from '../src/tools/MaterialEditor.js';
 import { HistoryManager } from '../src/core/HistoryManager.js';
 import { DeformationTool } from '../src/tools/DeformationTool.js';
+import { AssetManager } from '../src/core/AssetManager.js';
 
 // The real Three exporter only needs this browser API for untextured Node tests.
 globalThis.FileReader=class {
@@ -51,4 +52,17 @@ test('original names with spaces survive repeated import/export without breaking
   const one=await new ExportManager({root,animations:[clip]}).binary(),parsed=await new GLTFLoader().parseAsync(one,'');
   const two=await new ExportManager({root:parsed.scene,animations:parsed.animations}).binary(),result=await new GLTFLoader().parseAsync(two,'');
   assert.equal(result.scene.getObjectByName('Main_Hull').userData.name,'Main Hull');assert.equal(result.animations[0].tracks.length,1);
+});
+
+test('repeated editor save/load keeps the scene hierarchy and shared material count stable',async()=>{
+  const sample=createDemo(),history=new HistoryManager(),materials=new MaterialEditor(history);materials.set(sample.scene.getObjectByName('Hull'),0,'color','#41bca5');materials.end();
+  let asset={root:sample.scene,animations:[]},nodeCount=null;
+  for(let i=0;i<4;i++){
+    const data=await new ExportManager(asset).binary(),parsed=await new GLTFLoader().parseAsync(data,'');
+    asset=new AssetManager(new THREE.Group(),null);asset.setAsset(parsed,'sample.glb');
+    let count=0;asset.root.traverse(()=>count++);nodeCount??=count;assert.equal(count,nodeCount);assert.equal(asset.info.materials,6);
+  }
+  asset.root.position.x=2;
+  const transformed=await new GLTFLoader().parseAsync(await new ExportManager(asset).binary(),'');
+  assert.ok(Math.abs(assetBounds(transformed.scene).min.x-assetBounds(asset.root).min.x)<1e-5,'A transformed scene container must retain its whole-asset transform');
 });

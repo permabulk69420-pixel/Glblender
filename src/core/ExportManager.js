@@ -1,7 +1,7 @@
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import * as WebGLTextureUtils from 'three/addons/utils/WebGLTextureUtils.js';
-import { PropertyBinding } from 'three';
+import { PropertyBinding, Scene } from 'three';
 import { downloadBlob } from './utils.js';
 
 export class ExportManager {
@@ -10,7 +10,7 @@ export class ExportManager {
     if(!this.asset.root)throw new Error('Import a model first.');
     // Export only the asset, never the workshop or the tabletop-scale rig.
     // A snapshot also prevents autosave racing against the next editing gesture.
-    const source=this.asset.root,root=clone(source),from=[],to=[],uuidMap=new Map(),geometries=new Set();
+    const source=this.asset.root,root=clone(source),from=[],to=[],uuidMap=new Map(),geometries=new Map(),materials=new Map();
     source.traverse(n=>from.push(n));root.traverse(n=>to.push(n));
     to.forEach((n,i)=>{
       uuidMap.set(from[i].uuid,n.uuid);n.visible=!n.userData.glblenderHidden;
@@ -18,9 +18,10 @@ export class ExportManager {
       // names in exported nodes and target animation tracks by cloned UUID.
       n.name=n.userData.glblenderSourceName??n.userData.name??n.name;
       if(n.isLight&&n.userData.glblenderLightIntensity!==undefined)n.intensity=n.userData.glblenderLightIntensity;
-      if(n.geometry){n.geometry=n.geometry.clone();geometries.add(n.geometry);}
+      if(n.geometry){if(!geometries.has(n.geometry))geometries.set(n.geometry,n.geometry.clone());n.geometry=geometries.get(n.geometry);}
       // GLB visibility is editor metadata; isolated parts must not disappear.
-      if(n.material)n.material=Array.isArray(n.material)?n.material.map(m=>m.clone()):n.material.clone();
+      const copyMaterial=m=>{if(!materials.has(m))materials.set(m,m.clone());return materials.get(m);};
+      if(n.material)n.material=Array.isArray(n.material)?n.material.map(copyMaterial):copyMaterial(n.material);
     });
     const animations=this.asset.animations.map(clip=>{
       const c=clip.clone();c.tracks=c.tracks.filter(track=>{
@@ -31,9 +32,17 @@ export class ExportManager {
         return true;
       });return c;
     }).filter(c=>c.tracks.length);
+    // GLTFLoader represents the file's scene as a Group. Treat an unchanged
+    // scene container as a scene at export, otherwise every round-trip would
+    // add another AuxScene node. A transformed container stays a node so whole
+    // asset edits are never discarded.
+    let output=root;
+    if(source.userData.glblenderSceneRoot&&root.position.lengthSq()<1e-16&&Math.abs(root.quaternion.w)>1-1e-12&&root.scale.toArray().every(v=>Math.abs(v-1)<1e-12)){
+      output=new Scene();output.name=root.name;output.userData=root.userData;output.uuid=root.uuid;output.add(...root.children.slice());
+    }
     const exporter=new GLTFExporter().setTextureUtils(WebGLTextureUtils);
-    try{return await exporter.parseAsync(root,{binary:true,onlyVisible:!includeHidden,animations,trs:true});}
-    finally{for(const g of geometries)g.dispose();root.traverse(n=>{for(const m of Array.isArray(n.material)?n.material:n.material?[n.material]:[])m.dispose();});}
+    try{return await exporter.parseAsync(output,{binary:true,onlyVisible:!includeHidden,animations,trs:true});}
+    finally{for(const g of geometries.values())g.dispose();for(const m of materials.values())m.dispose();}
   }
   async download(options={}) {
     const data=await this.binary(options),name=this.asset.filename.replace(/\.(glb|gltf)$/i,'').replace(/-edited$/i,'')||'asset';

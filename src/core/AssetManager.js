@@ -48,6 +48,7 @@ export class AssetManager extends Events {
     const old = this.root;
     if (old) { this.presentation.remove(old); disposeTree(old); }
     this.root = gltf.scene; this.animations = gltf.animations || []; this.filename = filename; this.serial++;
+    if(gltf.parser)this.root.userData.glblenderSceneRoot=true;
     // Embedded cameras and lights are preserved, but cannot replace workshop lighting.
     this.root.traverse(node => {
       node.userData.glblenderSourceName ??= node.userData.name ?? node.name;

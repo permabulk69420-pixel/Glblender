@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 export const clamp = THREE.MathUtils.clamp;
 export const materialsOf = node => Array.isArray(node?.material) ? node.material : node?.material ? [node.material] : [];
-export const displayName = node => node?.userData?.glblenderSourceName || node?.userData?.name || node?.name || (node?.isMesh ? 'Unnamed mesh' : 'Group');
+export const displayName = node => node?.userData?.glblenderSceneRoot && node.name==='AuxScene' ? 'Asset scene' : node?.userData?.glblenderSourceName || node?.userData?.name || node?.name || (node?.isMesh ? 'Unnamed mesh' : 'Group');
 export const formatCount = n => n >= 1000000 ? `${(n / 1000000).toFixed(1)}m` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 export const escapeHTML = text => String(text ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const isEditableMesh = node => !!node?.isMesh && !node.isSkinnedMesh && !node.isInstancedMesh && !Object.keys(node.geometry.morphAttributes || {}).length;
