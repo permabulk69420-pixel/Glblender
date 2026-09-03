@@ -15,6 +15,10 @@ export class VRPanel {
     this.mesh=new THREE.Mesh(new THREE.PlaneGeometry(.52,.52*HEIGHT/WIDTH),new THREE.MeshBasicMaterial({map:this.texture,transparent:false,side:THREE.DoubleSide,depthTest:false,toneMapped:false}));
     this.mesh.renderOrder=100;this.mesh.position.set(-.72,1.36,-.8);this.mesh.rotation.y=.5;this.mesh.visible=false;editor.workshop.scene.add(this.mesh);
     this.tab='edit';this.page=0;this.dirty=true;this.regions=[];this.hover=null;this.drag=null;this.colorTarget='color';this.hue=0;this.savedColours=[];this.lastDraw=0;this.notice='';this.noticeUntil=0;
+    this.animSerial=-1;this.animRoot=null;this.animMixer=null;this.animAction=null;this.animClip=null;this.animIndex=0;this.animPlaying=false;this.animLoop=true;this.animSpeed=1;this.animLastTime=0;this.animUiTime=0;
+    editor.asset.on('beforechange',()=>this.resetAnimation());
+    editor.asset.on('loaded',()=>{this.animSerial=-1;this.animIndex=0;this.syncAnimationAsset();this.invalidate();});
+    editor.workshop.renderer.xr.addEventListener('sessionend',()=>this.stopAnimation());
   }
   invalidate() {this.dirty=true;}
   message(text) {this.notice=text;this.noticeUntil=performance.now()+4500;this.invalidate();}
@@ -35,18 +39,71 @@ export class VRPanel {
     const set=(px)=>{const fraction=THREE.MathUtils.clamp((px-x)/w,0,1);onChange(log?min*Math.pow(max/min,fraction):min+fraction*(max-min));};
     this.regions.push({id,x,y:y+8,w,h:38,disabled,down:(px)=>set(px),move:px=>set(px),up:()=>{if(material)this.e.materials.end();this.e.ui.renderInspector();}});
   }
-  update(time) {if(this.notice&&time>this.noticeUntil){this.notice='';this.dirty=true;}if(this.dirty&&time-this.lastDraw>40){this.draw();this.lastDraw=time;this.dirty=false;}}
+  resetAnimation() {
+    if(this.animMixer){this.animMixer.stopAllAction();if(this.animRoot)this.animMixer.uncacheRoot(this.animRoot);}
+    this.animRoot=null;this.animMixer=null;this.animAction=null;this.animClip=null;this.animPlaying=false;this.animLastTime=0;
+  }
+  syncAnimationAsset() {
+    const e=this.e,serial=e.asset.serial,root=e.asset.root,clips=e.asset.animations||[];
+    if(this.animSerial===serial&&this.animRoot===root)return;
+    this.resetAnimation();this.animSerial=serial;this.animRoot=root;this.animIndex=Math.min(this.animIndex,Math.max(0,clips.length-1));
+    if(root&&clips.length){
+      this.animMixer=new THREE.AnimationMixer(root);this.animMixer.timeScale=this.animSpeed;
+      this.animMixer.addEventListener('finished',()=>{this.animPlaying=false;if(this.animAction)this.animAction.paused=true;this.invalidate();});
+    }
+  }
+  configureAnimationAction() {
+    if(!this.animAction)return;
+    this.animAction.setLoop(this.animLoop?THREE.LoopRepeat:THREE.LoopOnce,this.animLoop?Infinity:1);this.animAction.clampWhenFinished=!this.animLoop;
+  }
+  selectAnimation(index=this.animIndex,play=true) {
+    this.syncAnimationAsset();const clips=this.e.asset.animations||[];if(!clips.length||!this.animMixer)return;
+    if(this.animAction)this.animAction.stop();
+    this.animIndex=(index%clips.length+clips.length)%clips.length;this.animClip=clips[this.animIndex];this.animAction=this.animMixer.clipAction(this.animClip);this.configureAnimationAction();
+    this.animAction.reset().play();this.animAction.paused=!play;this.animPlaying=play;this.animLastTime=performance.now();this.animMixer.update(0);this.invalidate();
+  }
+  toggleAnimation() {
+    this.syncAnimationAsset();if(!(this.e.asset.animations||[]).length)return;
+    if(!this.animAction){this.selectAnimation(this.animIndex,true);return;}
+    this.animPlaying=!this.animPlaying;this.animAction.paused=!this.animPlaying;this.animLastTime=performance.now();this.invalidate();
+  }
+  restartAnimation() {
+    this.syncAnimationAsset();if(!(this.e.asset.animations||[]).length)return;
+    if(!this.animAction){this.selectAnimation(this.animIndex,true);return;}
+    this.configureAnimationAction();this.animAction.reset().play();this.animAction.paused=false;this.animPlaying=true;this.animLastTime=performance.now();this.animMixer.update(0);this.invalidate();
+  }
+  stopAnimation() {
+    if(this.animMixer)this.animMixer.stopAllAction();this.animAction=null;this.animClip=null;this.animPlaying=false;this.animLastTime=0;this.invalidate();
+  }
+  toggleAnimationLoop() {this.animLoop=!this.animLoop;this.configureAnimationAction();this.invalidate();}
+  setAnimationSpeed(value) {this.animSpeed=THREE.MathUtils.clamp(value,.1,2);if(this.animMixer)this.animMixer.timeScale=this.animSpeed;this.invalidate();}
+  seekAnimation(value) {
+    this.syncAnimationAsset();const clips=this.e.asset.animations||[];if(!clips.length||!this.animMixer)return;
+    if(!this.animAction)this.selectAnimation(this.animIndex,false);
+    const duration=Math.max(this.animClip?.duration||0,.0001);this.animAction.time=THREE.MathUtils.clamp(value,0,duration);this.animAction.paused=true;this.animPlaying=false;this.animMixer.update(0);this.invalidate();
+  }
+  update(time) {
+    this.syncAnimationAsset();
+    if(!this.animLastTime)this.animLastTime=time;
+    const dt=Math.min(Math.max((time-this.animLastTime)/1000,0),.1);this.animLastTime=time;
+    if(this.animMixer&&this.animPlaying)this.animMixer.update(dt);
+    if(this.animPlaying&&this.tab==='animation'&&time-this.animUiTime>120){this.dirty=true;this.animUiTime=time;}
+    if(this.notice&&time>this.noticeUntil){this.notice='';this.dirty=true;}if(this.dirty&&time-this.lastDraw>40){this.draw();this.lastDraw=time;this.dirty=false;}
+  }
   draw() {
     const e=this.e,n=e.selection.selected,locked=e.selection.isLocked(),c=this.ctx;this.regions=[];
     c.fillStyle='#18222b';c.fillRect(0,0,WIDTH,HEIGHT);this.rect(0,0,WIDTH,5,ACCENT,0);
     this.text('Glblender',32,51,30,'#e4efe0','600');this.text(e.mode==='shape'?'SHAPE MODE':'OBJECT MODE',495,49,18,ACCENT,'500');
     this.text(this.truncate(e.asset.filename||'Workshop',49),32,88,18,MUTED);
-    this.row(['edit','material','shape','parts'].map(t=>({id:'tab-'+t,label:t[0].toUpperCase()+t.slice(1),active:this.tab===t,fn:()=>{this.tab=t;if(t==='shape')e.setMode('shape');if(t==='edit')e.setMode('object');this.invalidate();}})),112,{height:48,gap:8});
-    this.text(n?this.truncate(displayName(n),37):'Point at a component to select it',32,202,23,n?'#e1e9ed':MUTED,'500');
+    const tabs=['edit','material','shape','parts','animation'];
+    this.row(tabs.map(t=>({id:'tab-'+t,label:t==='animation'?'Anim':t[0].toUpperCase()+t.slice(1),active:this.tab===t,fn:()=>{if(t!=='animation'&&this.tab==='animation')this.stopAnimation();this.tab=t;if(t==='shape')e.setMode('shape');if(t==='edit')e.setMode('object');this.invalidate();}})),112,{height:48,gap:7});
+    const heading=this.tab==='animation'?`${e.asset.animations.length} animation clip${e.asset.animations.length===1?'':'s'}`:n?this.truncate(displayName(n),37):'Point at a component to select it';
+    this.text(heading,32,202,23,this.tab==='animation'||n?'#e1e9ed':MUTED,'500');
     if(this.tab==='edit')this.drawEdit(n,locked);
     if(this.tab==='material')this.drawMaterial(n,locked);
     if(this.tab==='shape')this.drawShape(n,locked);
     if(this.tab==='parts')this.drawParts();
+    if(this.tab==='animation')this.drawAnimation();
     c.strokeStyle='#35434f';c.beginPath();c.moveTo(32,824);c.lineTo(WIDTH-32,824);c.stroke();
     this.row([{id:'undo',label:'A  Undo',disabled:!e.history.canUndo,fn:()=>e.action('undo')},{id:'redo',label:'B  Redo',disabled:!e.history.canRedo,fn:()=>e.action('redo')}],842);
     this.row([{id:'import',label:'Import model',fn:()=>e.action('import')},{id:'export',label:e.busy?'Preparing…':'Export GLB',primary:true,disabled:e.busy,fn:()=>e.action('export')}],907);
@@ -106,6 +163,25 @@ export class VRPanel {
     for(let i=0;i<perPage;i++){const n=list[this.page*perPage+i];if(!n)break;this.button('part-'+n.uuid,(n.userData.glblenderHidden?'○ ':'')+this.truncate(displayName(n),40),32,227+i*60,WIDTH-64,49,()=>{e.selection.select(n);e.ui.renderTree();},{active:e.selection.selected===n});}
     this.row([{id:'prev',label:'Previous',disabled:this.page===0,fn:()=>{this.page--;this.invalidate();}},{id:'wholeparts',label:'Whole asset',fn:()=>e.selection.select(e.asset.root)},{id:'next',label:'Next',disabled:this.page>=total-1,fn:()=>{this.page++;this.invalidate();}}],726);
     this.text(`Page ${this.page+1} / ${total} · ${e.asset.meshes.length} meshes`,32,807,19,MUTED);
+  }
+  drawAnimation() {
+    this.syncAnimationAsset();const clips=this.e.asset.animations||[];
+    if(!clips.length){
+      this.text('No animation clips in this GLB.',32,270,25,'#dbe5eb','500');
+      this.text('If a model contains glTF animations, they will appear here',32,318,20,MUTED);
+      this.text('automatically and can be previewed without changing the file.',32,350,20,MUTED);return;
+    }
+    this.animIndex=Math.min(this.animIndex,clips.length-1);const clip=clips[this.animIndex],action=this.animAction&&this.animClip===clip?this.animAction:null;
+    const playing=!!action&&this.animPlaying&&!action.paused,current=action?.time||0,duration=Math.max(clip.duration||0,.0001);
+    this.text(this.truncate(clip.name||`Animation ${this.animIndex+1}`,48),32,268,28,'#e4efe0','600');
+    this.text(`Clip ${this.animIndex+1} / ${clips.length}  ·  ${duration.toFixed(2)} s`,32,304,19,MUTED);
+    this.row([{id:'anim-prev',label:'Previous',disabled:clips.length<2,fn:()=>this.selectAnimation(this.animIndex-1,true)},{id:'anim-play',label:playing?'Pause':'Play',fn:()=>this.toggleAnimation()},{id:'anim-next',label:'Next',disabled:clips.length<2,fn:()=>this.selectAnimation(this.animIndex+1,true)}],336);
+    this.row([{id:'anim-restart',label:'Restart',fn:()=>this.restartAnimation()},{id:'anim-stop',label:'Stop',disabled:!action,fn:()=>this.stopAnimation()},{id:'anim-loop',label:this.animLoop?'Loop: On':'Loop: Off',active:this.animLoop,fn:()=>this.toggleAnimationLoop()}],408);
+    this.slider('anim-speed','Playback speed',this.animSpeed,.1,2,505,v=>this.setAnimationSpeed(v));
+    this.slider('anim-time','Scrub',THREE.MathUtils.clamp(current,0,duration),0,duration,585,v=>this.seekAnimation(v));
+    this.text(playing?'Playing preview':'Paused / ready',32,674,21,playing?ACCENT:MUTED,'500');
+    this.text('Playback is preview-only. Leaving this tab restores the edit pose.',32,716,19,MUTED);
+    this.text('Animations remain embedded when you export the GLB.',32,748,19,'#82998c');
   }
   scaleSelected(factor) {const e=this.e,n=e.selection.selected;if(!n||e.selection.isLocked())return;const before=transformState(n);n.scale.multiplyScalar(factor);n.updateMatrix();e.history.transform(n,before,transformState(n),'Scale component');}
   scaleView(factor) {const w=this.e.workshop;w.viewScale=THREE.MathUtils.clamp(w.viewScale*factor,.0001,1000);w.viewRig.scale.setScalar(w.viewScale);w.viewMode='custom';this.e.ui.updateView();this.invalidate();}
