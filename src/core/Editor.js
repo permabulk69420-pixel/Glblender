@@ -90,7 +90,7 @@ export class Editor {
   async importBuffer(data,name) {this.setBusy(true,'Recovering your model…');try{await this.asset.parse(data,name);this.ui.root.querySelector('#recovery-banner').hidden=true;}finally{this.setBusy(false);}}
   setBusy(value,label) {this.busy=value;this.ui.setBusy(value,label);this.xr.panel.invalidate();}
   async exportGLB() {
-    this.materials.end();this.setBusy(true,'Preparing your GLB…');
+    this.xr?.panel?.stopAnimation?.();this.materials.end();this.setBusy(true,'Preparing your GLB…');
     try {
       const data=await this.exporter.binary(),name=this.asset.filename.replace(/\.(glb|gltf)$/i,'').replace(/-edited$/i,'')+'-edited.glb',blob=new Blob([data],{type:'model/gltf-binary'});
       if(this.workshop.renderer.xr.isPresenting)await this.workshop.renderer.xr.getSession().end();
