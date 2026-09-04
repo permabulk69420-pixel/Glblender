@@ -63,11 +63,11 @@ test('bend operation has finite normals and is exactly undoable',()=>{
   const scene=new THREE.Scene(),m=new THREE.Mesh(new THREE.BoxGeometry(.2,3,.2,2,30,2)),h=new HistoryManager(),t=new DeformationTool(h,scene);scene.add(m);scene.updateMatrixWorld(true);
   const original=m.geometry.attributes.position.array.slice();t.axis='Y';t.applyBend(m,Math.PI/2);assert.ok(m.geometry.attributes.position.array.some((v,i)=>Math.abs(v-original[i])>.01));assert.ok(m.geometry.attributes.normal.array.every(Number.isFinite));h.undo();assert.deepEqual(m.geometry.attributes.position.array,original);h.redo();assert.ok(m.geometry.attributes.position.array.every(Number.isFinite));
 });
-test('two-hand transformation scales and rotates about the hand midpoint',()=>{
+test('two-hand transformation scales and rotates about the object pivot',()=>{
   const world=new THREE.Matrix4().makeTranslation(0,0,1),mid=new THREE.Vector3(),vector=new THREE.Vector3(2,0,0);
   const {matrix,ratio}=twoHandMatrix(world,mid,vector,new THREE.Vector3(0,-2,0),new THREE.Vector3(0,2,0));near(ratio,2);
-  const point=new THREE.Vector3().applyMatrix4(matrix);nearVector(point,new THREE.Vector3(0,0,2));
-  const transformed=new THREE.Vector3(1,0,0).applyMatrix4(matrix);nearVector(transformed,new THREE.Vector3(0,2,2));
+  const point=new THREE.Vector3().applyMatrix4(matrix);nearVector(point,new THREE.Vector3(0,0,1));
+  const transformed=new THREE.Vector3(1,0,0).applyMatrix4(matrix);nearVector(transformed,new THREE.Vector3(0,2,1));
 });
 test('tabletop rig does not enter asset bounds or change source transforms',()=>{
   const world=new THREE.Scene(),presentation=new THREE.Group(),root=new THREE.Group(),m=new THREE.Mesh(new THREE.BoxGeometry(8,2,4));world.add(presentation);presentation.add(root);root.add(m);root.position.y=4;
