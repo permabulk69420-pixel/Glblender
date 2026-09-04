@@ -4,14 +4,15 @@ import * as THREE from 'three';
 import { HistoryManager } from '../src/core/HistoryManager.js';
 import { SelectionManager } from '../src/core/SelectionManager.js';
 import { Events } from '../src/core/events.js';
-import { canDetachSelected, detachSelected, separateLooseParts } from '../src/xr/VRQuickActions.js';
+import { MaterialEditor } from '../src/tools/MaterialEditor.js';
+import { canDetachSelected, detachSelected, separateLooseParts, canTextureSelected, setBaseTexture } from '../src/xr/VRQuickActions.js';
 
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-5,`${a} != ${b}`);
 
 function editorFor(root,scene) {
   const asset=new Events();asset.root=root;asset.originalTransforms=new WeakMap();asset.refresh=()=>{};
   const history=new HistoryManager(),selection=new SelectionManager(asset,scene,history);
-  return {asset,history,selection,xr:{lastSelectionHit:null}};
+  return {asset,history,selection,materials:new MaterialEditor(history),ui:{materialIndex:0,renderInspector(){}},xr:{lastSelectionHit:null,panel:{invalidate(){}}}};
 }
 
 test('detaching a loose grouped part preserves its world pose and is undoable',()=>{
@@ -45,4 +46,14 @@ test('connected top-level mesh reports no separation while rigged parts remain b
   const editor=editorFor(root,scene);
   editor.selection.select(mesh);assert.equal(canDetachSelected(editor),true);assert.equal(detachSelected(editor),false);
   editor.selection.select(bone);assert.equal(canDetachSelected(editor),false);
+});
+
+test('base texture import requires UV0, isolates shared materials and is undoable',()=>{
+  const scene=new THREE.Scene(),root=new THREE.Group(),shared=new THREE.MeshStandardMaterial({color:'#ffffff'}),a=new THREE.Mesh(new THREE.BoxGeometry(),shared),b=new THREE.Mesh(new THREE.BoxGeometry(),shared);root.add(a,b);scene.add(root);
+  const editor=editorFor(root,scene);editor.selection.select(a);
+  assert.equal(canTextureSelected(editor,a),true);
+  const texture=new THREE.Texture();texture.name='panel.png';
+  assert.equal(setBaseTexture(editor,a,0,texture),true);assert.equal(a.material.map,texture);assert.equal(b.material,shared);assert.equal(b.material.map,null);
+  editor.history.undo();assert.equal(a.material,shared);editor.history.redo();assert.equal(a.material.map,texture);
+  const noUV=new THREE.Mesh(new THREE.BufferGeometry(),shared);noUV.geometry.setAttribute('position',new THREE.Float32BufferAttribute([0,0,0,1,0,0,0,1,0],3));root.add(noUV);editor.selection.select(noUV);assert.equal(canTextureSelected(editor,noUV),false);
 });
