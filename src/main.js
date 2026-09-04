@@ -1,7 +1,11 @@
 import './style.css';
 import { Editor } from './core/Editor.js';
+import { installVRQuickActions } from './xr/VRQuickActions.js';
 
-try { new Editor(document.querySelector('#app')); }
+try {
+  const editor=new Editor(document.querySelector('#app'));
+  installVRQuickActions(editor);
+}
 catch(error) {
   console.error(error);
   const panel=document.createElement('div');panel.className='startup-error';panel.style.cssText='position:fixed;inset:15%;z-index:100;background:#1b242e;padding:35px;border:1px solid #986f59;border-radius:12px;line-height:1.8';
