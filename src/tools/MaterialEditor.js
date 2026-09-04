@@ -7,7 +7,8 @@ export class MaterialEditor {
     if(this.active?.node===node&&this.active.index===index)return;
     this.end();if(!node?.isMesh)return;
     const before=node.material, list=materialsOf(node).slice();if(!list[index])return;
-    // Copy on edit. Linked materials in an imported asset never recolour siblings.
+    // Copy on edit. Linked materials in an imported asset never recolour or
+    // retexture siblings that happen to share the same source material.
     list[index]=list[index].clone();node.material=Array.isArray(before)?list:list[0];
     this.active={node,index,before,material:list[index],changed:false};
   }
@@ -24,6 +25,10 @@ export class MaterialEditor {
     else if(key==='opacity') {m.opacity=value;m.transparent=value<1;m.depthWrite=value>=1;}
     else m[key]=value;
     m.needsUpdate=true;a.changed=true;
+  }
+  setTexture(node,index,key='map',texture=null) {
+    this.begin(node,index);const a=this.active;if(!a)return false;
+    a.material[key]=texture||null;a.material.needsUpdate=true;a.changed=true;return true;
   }
   end() {
     const a=this.active;if(!a)return;this.active=null;
