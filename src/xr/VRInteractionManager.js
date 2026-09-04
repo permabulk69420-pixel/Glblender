@@ -44,6 +44,10 @@ export class VRInteractionManager {
   selectStart(hand) {
     const e=this.e;if(e.busy||this.grab||e.shape.active||this.panel.drag)return;this.raycast(hand);
     if(hand.menuHit){hand.ui=true;this.panel.down(hand.index,hand.menuHit);this.haptic(hand);return;}
+    if(this.panel.colourMatchArmed){
+      if(hand.hit){if(this.panel.matchColourFromHit(hand.hit))this.haptic(hand);}else this.panel.message('Point at the source part and press trigger');
+      return;
+    }
     if(!hand.hit){e.selection.select(null);return;}
     e.selection.select(hand.hit.object);this.haptic(hand);
     if(e.mode==='shape'&&!e.selection.isLocked()) {
@@ -54,6 +58,7 @@ export class VRInteractionManager {
   endSculpt(hand) {this.e.shape.end();hand.sculpt=false;this.e.interacting=false;}
   squeeze(hand) {
     const e=this.e;if(e.busy||e.shape.active||hand.ui||this.panel.drag)return;
+    if(this.panel.colourMatchArmed){this.panel.message('Use trigger to sample the source colour');return;}
     if(this.grab){if(!this.grab.hands.includes(hand)&&this.grab.hands.length===1){this.grab.hands[0].grip.getWorldPosition(this.a);hand.grip.getWorldPosition(this.b);if(this.a.distanceTo(this.b)<.04)return;this.updateGrab();this.grab.hands.push(hand);hand.grabbing=true;this.rebaseGrab();this.haptic(hand);}return;}
     this.raycast(hand);if(hand.menuHit)return;
     const selected=e.selection.selected,node=selected===e.asset.root?selected:hand.hit?.object||selected;
