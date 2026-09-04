@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { applyTransform, displayName, transformState } from '../core/utils.js';
+import { applyTransform, displayName, materialsOf, transformState } from '../core/utils.js';
 
 function subtreeIsRigged(node) {
   let rigged=false;
@@ -112,8 +112,35 @@ export function detachSelected(editor,node=editor.selection.selected) {
   editor.selection.select(node);return 1;
 }
 
+export function canTextureSelected(editor,node=editor.selection.selected) {
+  return !!node?.isMesh&&!editor.selection.isLocked(node)&&!!node.geometry?.attributes?.uv;
+}
+
+export function setBaseTexture(editor,node,index,texture) {
+  if(!canTextureSelected(editor,node))return false;
+  if(!editor.materials.setTexture(node,index,'map',texture))return false;
+  editor.materials.end();editor.ui?.renderInspector?.();editor.xr?.panel?.invalidate?.();return true;
+}
+
+async function textureFromFile(file) {
+  let image;
+  if(typeof createImageBitmap==='function')image=await createImageBitmap(file);
+  else {
+    const url=URL.createObjectURL(file);
+    try{image=await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('Could not decode that image'));img.src=url;});}
+    finally{URL.revokeObjectURL(url);}
+  }
+  const texture=new THREE.Texture(image);texture.name=file.name;texture.colorSpace=THREE.SRGBColorSpace;texture.flipY=false;texture.wrapS=THREE.RepeatWrapping;texture.wrapT=THREE.RepeatWrapping;texture.needsUpdate=true;return texture;
+}
+
 export function installVRQuickActions(editor) {
   const xr=editor.xr,panel=xr.panel;
+
+  // Make the panel physically easier to read and hit in Quest without changing
+  // its canvas layout or the amount of information on screen.
+  const oldPanelGeometry=panel.mesh.geometry;
+  panel.mesh.geometry=new THREE.PlaneGeometry(.62,.62*panel.canvas.height/panel.canvas.width);
+  oldPanelGeometry.dispose();
 
   // Add destructive / hierarchy actions directly to the existing Edit panel.
   const originalDrawEdit=panel.drawEdit.bind(panel);
@@ -128,6 +155,68 @@ export function installVRQuickActions(editor) {
     },{disabled:!canDetachSelected(editor,node)});
     panel.button('delete-part','Delete part',396,579,340,35,()=>editor.action('delete'),{disabled:!deletable});
   };
+
+  // Texture editing is a lightweight sub-view of Material rather than another
+  // top-level tab. Imported images become the selected material's base map.
+  let textureTarget=null;
+  panel.textureMode=false;
+  const textureInput=document.createElement('input');textureInput.type='file';textureInput.accept='image/png,image/jpeg,image/webp';textureInput.hidden=true;document.body.append(textureInput);
+  const chooseTexture=document.createElement('button');chooseTexture.type='button';chooseTexture.textContent='Choose texture image';chooseTexture.hidden=true;chooseTexture.style.cssText='position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:10000;padding:18px 24px;font:600 18px system-ui;border-radius:12px;border:1px solid #91a1ae;background:#1f2a34;color:#e4efe0';document.body.append(chooseTexture);
+  chooseTexture.addEventListener('click',()=>textureInput.click());
+
+  const openTexturePicker=async(node,index)=>{
+    if(!node?.geometry?.attributes?.uv){panel.message('This part has no UV0 mapping · regenerate it with UVs first');return;}
+    textureTarget={node,index};textureInput.value='';chooseTexture.hidden=false;panel.message('Choose a PNG, JPG or WebP texture');
+    const session=editor.workshop.renderer.xr.getSession?.();
+    if(session){
+      await session.end();
+      setTimeout(()=>{try{textureInput.click();}catch{}},80);
+    }else textureInput.click();
+  };
+
+  textureInput.addEventListener('change',async()=>{
+    const file=textureInput.files?.[0],target=textureTarget;chooseTexture.hidden=true;if(!file||!target)return;
+    try{
+      if(!target.node?.isMesh||!target.node.geometry?.attributes?.uv)throw new Error('The target part no longer has usable UV mapping');
+      const texture=await textureFromFile(file);
+      if(!setBaseTexture(editor,target.node,target.index,texture))throw new Error('Could not apply the texture to that material');
+      panel.textureMode=true;panel.message(`${file.name} applied as base texture`);
+    }catch(error){panel.message(error.message||'Texture import failed');console.error('Texture import:',error);}
+    finally{textureTarget=null;panel.invalidate();}
+  });
+
+  const originalDrawMaterial=panel.drawMaterial.bind(panel);
+  panel.drawMaterial=(node,locked)=>{
+    const mats=materialsOf(node),index=Math.max(0,Math.min(editor.ui.materialIndex,mats.length-1)),m=mats[index];
+    if(panel.textureMode){
+      const hasUV=!!node?.geometry?.attributes?.uv,hasMap=!!m?.map;
+      panel.text('Base texture',32,260,28,'#e4efe0','600');
+      panel.text(hasUV?'UV0 detected · texture mapping is ready':'No UV0 mapping on this part',32,304,20,hasUV?'#91a1ae':'#d6b18a','500');
+      if(hasMap){
+        panel.text(panel.truncate(m.map.name||'Embedded / unnamed texture',47),32,355,21,'#dbe5eb','500');
+        const image=m.map.image||m.map.source?.data;
+        if(image&&typeof panel.ctx.drawImage==='function'){
+          try{panel.ctx.save();panel.ctx.fillStyle='#111820';panel.ctx.fillRect(32,382,240,180);panel.ctx.drawImage(image,32,382,240,180);panel.ctx.restore();}catch{}
+        }
+      }else panel.text('No base texture applied',32,355,21,'#91a1ae');
+      panel.button('texture-import',hasMap?'Replace texture':'Import texture',304,382,432,58,()=>openTexturePicker(node,index),{primary:true,disabled:locked||!hasUV});
+      panel.button('texture-remove','Remove texture',304,458,432,52,()=>{
+        if(setBaseTexture(editor,node,index,null))panel.message('Base texture removed');
+      },{disabled:locked||!hasMap});
+      panel.text(hasUV?'PNG, JPG and WebP are embedded into the exported GLB.':'Ask the GLB generator for clean TEXCOORD_0 / UV0 mapping.',32,610,19,hasUV?'#82998c':'#d6b18a');
+      panel.button('texture-slot',`Material ${index+1}/${Math.max(1,mats.length)}: ${panel.truncate(m?.name||'Surface',25)}`,32,680,704,46,()=>{editor.materials.end();editor.ui.materialIndex=(editor.ui.materialIndex+1)%Math.max(1,mats.length);panel.invalidate();});
+      panel.button('texture-back','Back to colour & material',32,748,704,46,()=>{panel.textureMode=false;panel.invalidate();});
+      return;
+    }
+    originalDrawMaterial(node,locked);
+    // Replace the old full-width material-slot control with slot + texture.
+    panel.regions=panel.regions.filter(region=>region.id!=='slot');
+    panel.rect(32,788,704,34,'#18222b',0);
+    panel.button('slot',`Material ${index+1}/${Math.max(1,mats.length)}: ${panel.truncate(m?.name||'Surface',18)}`,32,788,464,34,()=>{editor.materials.end();editor.ui.materialIndex=(editor.ui.materialIndex+1)%Math.max(1,mats.length);panel.invalidate();});
+    panel.button('texture-view',m?.map?'Texture ✓':'Texture…',508,788,228,34,()=>{panel.textureMode=true;panel.invalidate();},{disabled:!node?.isMesh});
+  };
+
+  editor.asset.on('beforechange',()=>{panel.textureMode=false;textureTarget=null;chooseTexture.hidden=true;});
 
   // Grip the floating panel itself to reposition and reorient it in VR.
   const originalSqueeze=xr.squeeze.bind(xr),originalRelease=xr.release.bind(xr),originalSelectStart=xr.selectStart.bind(xr),originalUpdate=xr.update.bind(xr);
