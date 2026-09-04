@@ -6,7 +6,7 @@ import { transformState, applyTransform } from '../core/utils.js';
 export class VRInteractionManager {
   constructor(editor) {
     this.e=editor;this.panel=new VRPanel(editor);this.hands=[];this.grab=null;this.supported=false;this.lastTurn=0;this.pendingPanel=0;
-    this.matrix=new THREE.Matrix4();this.parentInverse=new THREE.Matrix4();this.desired=new THREE.Matrix4();this.a=new THREE.Vector3();this.b=new THREE.Vector3();this.mid=new THREE.Vector3();this.forward=new THREE.Vector3();this.right=new THREE.Vector3();this.head=new THREE.Vector3();this.axisVector=new THREE.Vector3();this.delta=new THREE.Vector3();this.q=new THREE.Quaternion();this.up=new THREE.Vector3(0,1,0);
+    this.matrix=new THREE.Matrix4();this.parentInverse=new THREE.Matrix4();this.desired=new THREE.Matrix4();this.a=new THREE.Vector3();this.b=new THREE.Vector3();this.mid=new THREE.Vector3();this.forward=new THREE.Vector3();this.right=new THREE.Vector3();this.head=new THREE.Vector3();this.axisVector=new THREE.Vector3();this.delta=new THREE.Vector3();this.q=new THREE.Quaternion();this.up=new THREE.Vector3(0,1,0);this.bounds=new THREE.Box3();
     for(let i=0;i<2;i++)this.createHand(i);
     editor.workshop.renderer.xr.addEventListener('sessionstart',()=>{editor.workshop.enterXR();editor.transform.attach();document.body.classList.add('xr-active');this.panel.mesh.visible=true;this.pendingPanel=3;this.panel.invalidate();});
     editor.workshop.renderer.xr.addEventListener('sessionend',()=>{this.finishAll();this.panel.mesh.visible=false;editor.shape.hover(null);editor.workshop.exitXR();editor.transform.attach();document.body.classList.remove('xr-active');editor.ui.render();});
@@ -70,12 +70,15 @@ export class VRInteractionManager {
     const g=this.grab;if(!g)return;g.node.updateWorldMatrix(true,false);g.startWorld=g.node.matrixWorld.clone();g.localStart=transformState(g.node);g.localScale=g.node.scale.clone();
     for(const h of g.hands)h.grip.updateWorldMatrix(true,false);
     if(g.hands.length===1){g.inverseGrip=g.hands[0].grip.matrixWorld.clone().invert();}
-    else{g.hands[0].grip.getWorldPosition(this.a);g.hands[1].grip.getWorldPosition(this.b);g.mid=this.a.clone().add(this.b).multiplyScalar(.5);g.vector=this.b.clone().sub(this.a);}
+    else{
+      g.hands[0].grip.getWorldPosition(this.a);g.hands[1].grip.getWorldPosition(this.b);g.mid=this.a.clone().add(this.b).multiplyScalar(.5);g.vector=this.b.clone().sub(this.a);
+      this.bounds.setFromObject(g.node,true);g.pivot=this.bounds.isEmpty()?g.node.getWorldPosition(new THREE.Vector3()):this.bounds.getCenter(new THREE.Vector3());
+    }
   }
   updateGrab() {
     const g=this.grab;if(!g)return;let ratio=1;
     if(g.hands.length===1){g.hands[0].grip.updateWorldMatrix(true,false);this.desired.copy(g.hands[0].grip.matrixWorld).multiply(g.inverseGrip).multiply(g.startWorld);}
-    else{g.hands[0].grip.getWorldPosition(this.a);g.hands[1].grip.getWorldPosition(this.b);ratio=twoHandMatrix(g.startWorld,g.mid,g.vector,this.a,this.b,this.desired).ratio;}
+    else{g.hands[0].grip.getWorldPosition(this.a);g.hands[1].grip.getWorldPosition(this.b);ratio=twoHandMatrix(g.startWorld,g.pivot,g.vector,this.a,this.b,this.desired).ratio;}
     g.node.parent.updateWorldMatrix(true,false);this.parentInverse.copy(g.node.parent.matrixWorld).invert();this.matrix.multiplyMatrices(this.parentInverse,this.desired);this.matrix.decompose(g.node.position,g.node.quaternion,g.node.scale);
     // A rotated non-uniform parent can introduce shear. Keep intended local
     // scale explicit instead of accumulating decomposed scale drift each frame.
