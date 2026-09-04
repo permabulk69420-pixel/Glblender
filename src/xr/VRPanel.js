@@ -14,11 +14,11 @@ export class VRPanel {
     this.texture=new THREE.CanvasTexture(this.canvas);this.texture.colorSpace=THREE.SRGBColorSpace;this.texture.minFilter=THREE.LinearFilter;this.texture.generateMipmaps=false;
     this.mesh=new THREE.Mesh(new THREE.PlaneGeometry(.52,.52*HEIGHT/WIDTH),new THREE.MeshBasicMaterial({map:this.texture,transparent:false,side:THREE.DoubleSide,depthTest:false,toneMapped:false}));
     this.mesh.renderOrder=100;this.mesh.position.set(-.72,1.36,-.8);this.mesh.rotation.y=.5;this.mesh.visible=false;editor.workshop.scene.add(this.mesh);
-    this.tab='edit';this.page=0;this.dirty=true;this.regions=[];this.hover=null;this.drag=null;this.colorTarget='color';this.hue=0;this.savedColours=[];this.lastDraw=0;this.notice='';this.noticeUntil=0;
+    this.tab='edit';this.page=0;this.dirty=true;this.regions=[];this.hover=null;this.drag=null;this.colorTarget='color';this.hue=0;this.savedColours=[];this.colourMatchArmed=false;this.colourMatchTarget=null;this.lastDraw=0;this.notice='';this.noticeUntil=0;
     this.animSerial=-1;this.animRoot=null;this.animMixer=null;this.animAction=null;this.animClip=null;this.animIndex=0;this.animPlaying=false;this.animLoop=true;this.animSpeed=1;this.animLastTime=0;this.animUiTime=0;
-    editor.asset.on('beforechange',()=>this.resetAnimation());
+    editor.asset.on('beforechange',()=>{this.cancelColourMatch();this.resetAnimation();});
     editor.asset.on('loaded',()=>{this.animSerial=-1;this.animIndex=0;this.syncAnimationAsset();this.invalidate();});
-    editor.workshop.renderer.xr.addEventListener('sessionend',()=>this.stopAnimation());
+    editor.workshop.renderer.xr.addEventListener('sessionend',()=>{this.cancelColourMatch();this.stopAnimation();});
   }
   invalidate() {this.dirty=true;}
   message(text) {this.notice=text;this.noticeUntil=performance.now()+4500;this.invalidate();}
@@ -38,6 +38,26 @@ export class VRPanel {
     c.beginPath();c.arc(x+w*THREE.MathUtils.clamp(t,0,1),y+26,9,0,Math.PI*2);c.fillStyle=ACCENT;c.fill();
     const set=(px)=>{const fraction=THREE.MathUtils.clamp((px-x)/w,0,1);onChange(log?min*Math.pow(max/min,fraction):min+fraction*(max-min));};
     this.regions.push({id,x,y:y+8,w,h:38,disabled,down:(px)=>set(px),move:px=>set(px),up:()=>{if(material)this.e.materials.end();this.e.ui.renderInspector();}});
+  }
+  armColourMatch() {
+    const e=this.e,n=e.selection.selected;if(!n?.isMesh||e.selection.isLocked(n))return;
+    this.colourMatchArmed=true;this.colourMatchTarget={node:n,index:e.ui.materialIndex,key:this.colorTarget};
+    this.message('Point at the source part and press trigger');
+  }
+  cancelColourMatch(notify=false) {
+    const wasArmed=this.colourMatchArmed;this.colourMatchArmed=false;this.colourMatchTarget=null;
+    if(notify&&wasArmed)this.message('Colour match cancelled');else this.invalidate();
+  }
+  matchColourFromHit(hit) {
+    const e=this.e,target=this.colourMatchTarget;if(!this.colourMatchArmed||!target)return false;
+    if(!hit?.object?.isMesh){this.message('Point at a mesh to sample its colour');return false;}
+    const mats=materialsOf(hit.object);if(!mats.length){this.message('That part has no material colour to sample');return false;}
+    const index=Math.max(0,Math.min(hit.face?.materialIndex??0,mats.length-1)),source=mats[index],sample=source?.[target.key];
+    if(!sample?.isColor){this.message(target.key==='emissive'?'That part has no emissive colour':'That part has no base colour');return false;}
+    if(!target.node?.isMesh||e.selection.isLocked(target.node)){this.cancelColourMatch();this.message('The target part is no longer available');return false;}
+    const value='#'+sample.getHexString();this.savedColours=[value,...this.savedColours.filter(c=>c!==value)].slice(0,8);
+    e.materials.set(target.node,target.index,target.key,value);e.materials.end();e.ui.renderInspector();
+    this.colourMatchArmed=false;this.colourMatchTarget=null;this.message(`Matched ${value.toUpperCase()} · saved to palette`);return true;
   }
   resetAnimation() {
     if(this.animMixer){this.animMixer.stopAllAction();if(this.animRoot)this.animMixer.uncacheRoot(this.animRoot);}
@@ -96,7 +116,7 @@ export class VRPanel {
     this.text('Glblender',32,51,30,'#e4efe0','600');this.text(e.mode==='shape'?'SHAPE MODE':'OBJECT MODE',495,49,18,ACCENT,'500');
     this.text(this.truncate(e.asset.filename||'Workshop',49),32,88,18,MUTED);
     const tabs=['edit','material','shape','parts','animation'];
-    this.row(tabs.map(t=>({id:'tab-'+t,label:t==='animation'?'Anim':t[0].toUpperCase()+t.slice(1),active:this.tab===t,fn:()=>{if(t!=='animation'&&this.tab==='animation')this.stopAnimation();this.tab=t;if(t==='shape')e.setMode('shape');if(t==='edit')e.setMode('object');this.invalidate();}})),112,{height:48,gap:7});
+    this.row(tabs.map(t=>({id:'tab-'+t,label:t==='animation'?'Anim':t[0].toUpperCase()+t.slice(1),active:this.tab===t,fn:()=>{if(t!=='material'&&this.colourMatchArmed)this.cancelColourMatch();if(t!=='animation'&&this.tab==='animation')this.stopAnimation();this.tab=t;if(t==='shape')e.setMode('shape');if(t==='edit')e.setMode('object');this.invalidate();}})),112,{height:48,gap:7});
     const heading=this.tab==='animation'?`${e.asset.animations.length} animation clip${e.asset.animations.length===1?'':'s'}`:n?this.truncate(displayName(n),37):'Point at a component to select it';
     this.text(heading,32,202,23,this.tab==='animation'||n?'#e1e9ed':MUTED,'500');
     if(this.tab==='edit')this.drawEdit(n,locked);
@@ -138,12 +158,12 @@ export class VRPanel {
     this.regions.push({id:'color-hue',x,y:429,w,h:41,disabled:locked,down:hue,move:hue,up:()=>e.materials.end()});
     const palette=[...this.savedColours,...PALETTE.filter(value=>!this.savedColours.includes(value))].slice(0,8);
     palette.forEach((value,i)=>{const sx=36+i*87;this.rect(sx,484,69,37,value,5);this.regions.push({id:'swatch-'+i,x:sx,y:484,w:69,h:37,disabled:locked,down:()=>e.setMaterial(target,value,true)});});
-    this.button('save-colour','Save current colour',32,528,222,31,()=>{const value='#'+(materialsOf(e.selection.selected)[e.ui.materialIndex]?.[target]?.getHexString()||'000000');this.savedColours=[value,...this.savedColours.filter(c=>c!==value)].slice(0,8);this.message(`${value.toUpperCase()} saved to palette`);},{disabled:locked});
-    this.text(this.savedColours.length?'Saved colours appear first in the palette':'Save a colour, then reuse it on another part',273,551,17,MUTED);
-    this.slider('metal','Metallic',m.metalness??0,0,1,582,v=>e.setMaterial('metalness',v),{material:true,disabled:locked});
-    this.slider('rough','Roughness',m.roughness??1,0,1,652,v=>e.setMaterial('roughness',v),{material:true,disabled:locked});
-    this.slider('third',target==='emissive'?'Emission strength':'Opacity',target==='emissive'?(m.emissiveIntensity??1):(m.opacity??1),0,target==='emissive'?5:1,722,v=>e.setMaterial(target==='emissive'?'emissiveIntensity':'opacity',v),{material:true,disabled:locked});
-    this.button('slot',`Material ${e.ui.materialIndex+1}/${mats.length}: ${this.truncate(m.name||'Surface',26)}`,32,775,WIDTH-64,34,()=>{e.materials.end();e.ui.materialIndex=(e.ui.materialIndex+1)%mats.length;this.invalidate();});
+    this.row([{id:'save-colour',label:'Save current',disabled:locked,fn:()=>{const value='#'+(materialsOf(e.selection.selected)[e.ui.materialIndex]?.[target]?.getHexString()||'000000');this.savedColours=[value,...this.savedColours.filter(c=>c!==value)].slice(0,8);this.message(`${value.toUpperCase()} saved to palette`);}},{id:'match-colour',label:this.colourMatchArmed?'Cancel match':'Match from part',active:this.colourMatchArmed,disabled:locked,fn:()=>this.colourMatchArmed?this.cancelColourMatch(true):this.armColourMatch()}],528,{height:34,gap:10});
+    this.text(this.colourMatchArmed?'Point at the source part and press trigger':this.savedColours.length?'Saved colours appear first in the palette':'Save a colour, then reuse it on another part',32,578,17,this.colourMatchArmed?ACCENT:MUTED);
+    this.slider('metal','Metallic',m.metalness??0,0,1,598,v=>e.setMaterial('metalness',v),{material:true,disabled:locked});
+    this.slider('rough','Roughness',m.roughness??1,0,1,666,v=>e.setMaterial('roughness',v),{material:true,disabled:locked});
+    this.slider('third',target==='emissive'?'Emission strength':'Opacity',target==='emissive'?(m.emissiveIntensity??1):(m.opacity??1),0,target==='emissive'?5:1,734,v=>e.setMaterial(target==='emissive'?'emissiveIntensity':'opacity',v),{material:true,disabled:locked});
+    this.button('slot',`Material ${e.ui.materialIndex+1}/${mats.length}: ${this.truncate(m.name||'Surface',26)}`,32,788,WIDTH-64,34,()=>{e.materials.end();e.ui.materialIndex=(e.ui.materialIndex+1)%mats.length;this.invalidate();});
   }
   drawShape(n,locked) {
     const e=this.e,s=e.shape,disabled=!isEditableMesh(n)||locked;
