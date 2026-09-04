@@ -64,8 +64,8 @@ test('bend operation has finite normals and is exactly undoable',()=>{
   const original=m.geometry.attributes.position.array.slice();t.axis='Y';t.applyBend(m,Math.PI/2);assert.ok(m.geometry.attributes.position.array.some((v,i)=>Math.abs(v-original[i])>.01));assert.ok(m.geometry.attributes.normal.array.every(Number.isFinite));h.undo();assert.deepEqual(m.geometry.attributes.position.array,original);h.redo();assert.ok(m.geometry.attributes.position.array.every(Number.isFinite));
 });
 test('two-hand transformation scales and rotates about the object pivot',()=>{
-  const world=new THREE.Matrix4().makeTranslation(0,0,1),mid=new THREE.Vector3(),vector=new THREE.Vector3(2,0,0);
-  const {matrix,ratio}=twoHandMatrix(world,mid,vector,new THREE.Vector3(0,-2,0),new THREE.Vector3(0,2,0));near(ratio,2);
+  const world=new THREE.Matrix4().makeTranslation(0,0,1),pivot=new THREE.Vector3(0,0,1),vector=new THREE.Vector3(2,0,0);
+  const {matrix,ratio}=twoHandMatrix(world,pivot,vector,new THREE.Vector3(0,-2,0),new THREE.Vector3(0,2,0));near(ratio,2);
   const point=new THREE.Vector3().applyMatrix4(matrix);nearVector(point,new THREE.Vector3(0,0,1));
   const transformed=new THREE.Vector3(1,0,0).applyMatrix4(matrix);nearVector(transformed,new THREE.Vector3(0,2,1));
 });
