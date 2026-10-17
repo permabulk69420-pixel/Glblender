@@ -8,7 +8,9 @@ export class SessionManager {
     try{const db=await this.db();return await new Promise((resolve,reject)=>{const r=db.transaction('sessions').objectStore('sessions').get('current');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
     catch{this.enabled=false;this.editor.ui?.setSaveStatus('Recovery unavailable');return null;}
   }
-  schedule() {if(!this.enabled)return;clearTimeout(this.timer);this.timer=setTimeout(()=>this.save(),3500);this.editor.ui?.setSaveStatus('Unsaved edits');}
+  // Autosave exports the whole GLB, textures included. For a scan that costs seconds and gigabytes, so large assets are left to manual export.
+  large() {const i=this.editor.asset.info;return !!i&&(i.triangles>150000||i.vertices>250000);}
+  schedule() {if(!this.enabled)return;if(this.large()){clearTimeout(this.timer);this.editor.ui?.setSaveStatus('Large asset · export to save');return;}clearTimeout(this.timer);this.timer=setTimeout(()=>this.save(),3500);this.editor.ui?.setSaveStatus('Unsaved edits');}
   async save() {
     const e=this.editor;if(this.saving||e.interacting||e.busy){this.schedule();return;}if(!this.enabled||!e.asset.root)return;
     this.saving=true;const serial=e.asset.serial,revision=e.history.revision,filename=e.asset.filename;

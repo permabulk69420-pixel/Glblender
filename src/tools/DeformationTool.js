@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { isEditableMesh, clamp } from '../core/utils.js';
 import { smoothFalloff, bendPoint } from './deformationMath.js';
+import { refit } from '../core/picking.js';
 
 export class DeformationTool {
   constructor(history,scene) {
@@ -14,8 +15,10 @@ export class DeformationTool {
     }
   }
   hover(point,worldScale=1) {this.brush.visible=!!point;if(point){this.brush.position.copy(point);this.brush.scale.setScalar(this.radius*worldScale);}}
+  get erasing() {return this.kind==='erase'||this.kind==='restore';}
   begin(mesh,point,handle,viewScale=1,normal=null) {
     if(this.active)return false;
+    if(this.erasing){if(!this.eraser?.begin(point,viewScale))return false;this.active={erase:true};return true;}
     if(!isEditableMesh(mesh))throw new Error('Shape tools need a static mesh. Select a mesh without a rig, morph targets or instances.');
     if(mesh.geometry.attributes.position.count>1000000)throw new Error('This mesh has over one million vertices. Simplify it before shaping on Quest.');
     if(!this.uniqueGeometry.has(mesh)){mesh.geometry=mesh.geometry.clone();this.uniqueGeometry.add(mesh);}
@@ -42,6 +45,7 @@ export class DeformationTool {
   }
   update(handle,now=performance.now()) {
     const a=this.active;if(!a)return;
+    if(a.erase){this.eraser.update(this.hitPoint);return;}
     this.delta.subVectors(handle,a.start);this.localDelta.copy(this.delta).applyMatrix3(a.linear);
     const dx=this.localDelta.x*this.strength,dy=this.localDelta.y*this.strength,dz=this.localDelta.z*this.strength;
     if(this.delta.lengthSq()>1e-10)a.changed=true;
@@ -67,9 +71,10 @@ export class DeformationTool {
     for(let j=0;j<a.indices.length;j++){const k=j*3,i=a.indices[j]*3,out=operation(j,a.before[k],a.before[k+1],a.before[k+2],a.weights[j]);arr[i]=out[0];arr[i+1]=out[1];arr[i+2]=out[2];}
     p.clearUpdateRanges();const first=a.indices[0]*3,last=a.indices.at(-1)*3+3;p.addUpdateRange(first,last-first);p.needsUpdate=true;
   }
-  recompute(mesh) {mesh.geometry.computeVertexNormals();mesh.geometry.computeBoundingBox();mesh.geometry.computeBoundingSphere();}
+  recompute(mesh) {mesh.geometry.computeVertexNormals();mesh.geometry.computeBoundingBox();mesh.geometry.computeBoundingSphere();refit(mesh);}
   end(cancel=false) {
     const a=this.active;if(!a)return;this.active=null;this.brush.visible=false;
+    if(a.erase){this.eraser.end(cancel);return;}
     const apply=data=>{const p=a.mesh.geometry.attributes.position;for(let j=0;j<a.indices.length;j++)p.setXYZ(a.indices[j],data[j*3],data[j*3+1],data[j*3+2]);p.clearUpdateRanges();p.needsUpdate=true;this.recompute(a.mesh);};
     if(cancel){apply(a.before);return;}
     this.recompute(a.mesh);if(!a.changed)return;

@@ -2,7 +2,7 @@ import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import * as WebGLTextureUtils from 'three/addons/utils/WebGLTextureUtils.js';
 import { PropertyBinding, Scene } from 'three';
-import { downloadBlob } from './utils.js';
+import { downloadBlob, transformState, sameTransform } from './utils.js';
 
 export class ExportManager {
   constructor(asset) {this.asset=asset;}
@@ -43,6 +43,12 @@ export class ExportManager {
     const exporter=new GLTFExporter().setTextureUtils(WebGLTextureUtils);
     try{return await exporter.parseAsync(output,{binary:true,onlyVisible:!includeHidden,animations,trs:true});}
     finally{for(const g of geometries.values())g.dispose();for(const m of materials.values())m.dispose();}
+  }
+  // The erase strokes, in the asset's own space (root-local). `movedParts` counts nodes whose transform differs from the file's,
+  // because the build script replays these positions on the original, unmoved model.
+  eraseList(ops) {
+    let moved=0;this.asset.root?.traverse(n=>{const o=this.asset.originalTransforms.get(n);if(o&&!sameTransform(o,transformState(n)))moved++;});
+    return {format:'glblender-erase',version:1,asset:this.asset.filename,space:'asset-local metres',movedParts:moved,ops:ops.map(o=>o.map((v,i)=>i<4?Math.round(v*1e6)/1e6:v))};
   }
   async download(options={}) {
     const data=await this.binary(options),name=this.asset.filename.replace(/\.(glb|gltf)$/i,'').replace(/-edited$/i,'')||'asset';

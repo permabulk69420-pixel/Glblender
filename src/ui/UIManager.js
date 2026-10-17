@@ -169,10 +169,15 @@ export class UIManager {
   shapeHTML(n) {
     const s=this.e.shape;
     if(!isEditableMesh(n))return '<section class="inspector-section"><h3>Choose a static mesh</h3><p class="helper-text">Select an individual mesh to use shape tools. Rigged meshes, instances and morph targets are preserved but cannot be deformed.</p></section>';
+    const tools=`<div class="shape-tool-grid">${[['pull','Pull'],['stretch','Stretch'],['squash','Squash'],['flatten','Flatten'],['bend','Bend'],['erase','Erase'],['restore','Restore']].map(([k,l])=>`<button data-shape-tool="${k}" class="${s.kind===k?'active':''}">${l}</button>`).join('')}</div>
+      <label class="property-field"><span>Brush radius<output>${s.radius.toFixed(2)} m</output></span><input type="range" aria-label="Brush radius" data-shape="radius" min=".01" max="5" step=".01" value="${s.radius}"/></label>`;
+    if(s.erasing)return `<section class="inspector-section"><div class="section-line"><h3>Erase tools</h3><span class="subtle-label">${this.e.eraser.count} DABS</span></div>
+      ${this.e.mode!=='shape'?btn('shape','Enable Shape mode','shape','wide primary'):''}${tools}
+      <p class="helper-text">${s.kind==='erase'?'Drag over the surface to delete the triangles under the brush.':'Drag over erased surface to bring it back.'} Ctrl+Z undoes a whole stroke. Radius is in asset metres.</p>
+      ${btn('export-erase','Export erase list',null,'wide primary')}
+      <p class="helper-text">The erase list is a small file of your brush strokes. The build script replays it on the original model, so you never have to export the whole edited asset.</p></section>`;
     return `<section class="inspector-section"><div class="section-line"><h3>Shape tools</h3><span class="subtle-label">SOFT SELECTION</span></div>
-      ${this.e.mode!=='shape'?btn('shape','Enable Shape mode','shape','wide primary'):''}
-      <div class="shape-tool-grid">${[['pull','Pull'],['stretch','Stretch'],['squash','Squash'],['flatten','Flatten'],['bend','Bend']].map(([k,l])=>`<button data-shape-tool="${k}" class="${s.kind===k?'active':''}">${l}</button>`).join('')}</div>
-      <label class="property-field"><span>Brush radius<output>${s.radius.toFixed(2)} m</output></span><input type="range" aria-label="Brush radius" data-shape="radius" min=".01" max="5" step=".01" value="${s.radius}"/></label>
+      ${this.e.mode!=='shape'?btn('shape','Enable Shape mode','shape','wide primary'):''}${tools}
       <label class="property-field"><span>Strength<output>${s.strength.toFixed(2)}</output></span><input type="range" aria-label="Shape strength" data-shape="strength" min=".05" max="2" step=".05" value="${s.strength}"/></label>
       <label class="property-field"><span>Falloff<output>${s.falloff.toFixed(2)}</output></span><input type="range" aria-label="Falloff" data-shape="falloff" min=".3" max="3" step=".1" value="${s.falloff}"/></label>
       <div class="property-field"><span>Stretch / bend axis</span><div class="axis-buttons">${['X','Y','Z'].map(a=>`<button data-shape-axis="${a}" class="${s.axis===a?'active':''}">${a}</button>`).join('')}</div></div>

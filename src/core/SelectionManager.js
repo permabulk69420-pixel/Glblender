@@ -15,7 +15,7 @@ export class SelectionManager extends Events {
   isVisible(node) { for(let p=node;p;p=p.parent)if(!p.visible)return false;return true; }
   update() {
     const node=this.selected;
-    this.box.visible=!!node&&this.isVisible(node);this.highlight.visible=this.box.visible&&!!node?.isMesh&&!node.isSkinnedMesh&&!node.isInstancedMesh;
+    this.box.visible=!!node&&this.isVisible(node);this.highlight.visible=this.box.visible&&!!node?.isMesh&&!node.isSkinnedMesh&&!node.isInstancedMesh&&(node.geometry.index?.count??node.geometry.attributes.position.count)/3<=60000;   // a wireframe of a dense scan chunk doubles its cost every frame
     if(this.box.visible)this.box.setFromObject(node);
     if(this.highlight.visible){this.highlight.geometry=node.geometry;this.highlight.matrix.copy(node.matrixWorld);}
   }
