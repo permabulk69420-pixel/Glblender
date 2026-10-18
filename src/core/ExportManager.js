@@ -1,11 +1,12 @@
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { compactErasedGeometry } from './compactErasedGeometry.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import * as WebGLTextureUtils from 'three/addons/utils/WebGLTextureUtils.js';
 import { PropertyBinding, Scene } from 'three';
 import { downloadBlob, transformState, sameTransform } from './utils.js';
 
 export class ExportManager {
-  constructor(asset) {this.asset=asset;}
+  constructor(asset, eraser=null) {this.asset=asset;this.eraser=eraser;}
   async binary({includeHidden=true}={}) {
     if(!this.asset.root)throw new Error('Import a model first.');
     // Export only the asset, never the workshop or the tabletop-scale rig.
@@ -18,7 +19,11 @@ export class ExportManager {
       // names in exported nodes and target animation tracks by cloned UUID.
       n.name=n.userData.glblenderSourceName??n.userData.name??n.name;
       if(n.isLight&&n.userData.glblenderLightIntensity!==undefined)n.intensity=n.userData.glblenderLightIntensity;
-      if(n.geometry){if(!geometries.has(n.geometry))geometries.set(n.geometry,n.geometry.clone());n.geometry=geometries.get(n.geometry);}
+      if(n.geometry){
+        const original=from[i].geometry;
+        if(!geometries.has(original))geometries.set(original,compactErasedGeometry(original,this.eraser?.states.get(original)?.erased));
+        n.geometry=geometries.get(original);
+      }
       // GLB visibility is editor metadata; isolated parts must not disappear.
       const copyMaterial=m=>{if(!materials.has(m))materials.set(m,m.clone());return materials.get(m);};
       if(n.material)n.material=Array.isArray(n.material)?n.material.map(copyMaterial):copyMaterial(n.material);

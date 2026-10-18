@@ -21,7 +21,7 @@ export class Editor {
     this.ui=new UIManager(this,root);this.workshop=new Workshop(root.querySelector('#viewport'));
     this.asset=new AssetManager(this.workshop.offset,this.workshop.renderer);this.selection=new SelectionManager(this.asset,this.workshop.scene,this.history);
     this.materials=new MaterialEditor(this.history);this.shape=new DeformationTool(this.history,this.workshop.scene);this.transform=new TransformTool(this);
-    this.exporter=new ExportManager(this.asset);this.eraser=new EraseTool(this.history,this.asset,this.shape);this.shape.eraser=this.eraser;this.sessions=new SessionManager(this);this.xr=new VRInteractionManager(this);
+    this.eraser=new EraseTool(this.history,this.asset,this.shape);this.shape.eraser=this.eraser;this.exporter=new ExportManager(this.asset,this.eraser);this.sessions=new SessionManager(this);this.xr=new VRInteractionManager(this);
     this.ray=new THREE.Raycaster();this.pointer=new THREE.Vector2();this.dragPlane=new THREE.Plane();this.dragPoint=new THREE.Vector3();this.cameraDirection=new THREE.Vector3();
     this.asset.on('beforechange',()=>{this.materials.end();this.shape.end(true);clearTimeout(this.sessions.timer);this.history.clear();this.transform.controls.detach();});
     this.asset.on('loaded',()=>{this.workshop.setAssetBounds(this.asset.info.bounds);this.ui.materialIndex=0;this.ui.expanded.clear();this.selection.select(this.asset.meshes[0]||this.asset.root);this.ui.render();this.xr.panel.invalidate();});

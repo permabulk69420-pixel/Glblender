@@ -9,6 +9,7 @@ import { MaterialEditor } from '../src/tools/MaterialEditor.js';
 import { HistoryManager } from '../src/core/HistoryManager.js';
 import { DeformationTool } from '../src/tools/DeformationTool.js';
 import { AssetManager } from '../src/core/AssetManager.js';
+import { EraseTool } from '../src/tools/EraseTool.js';
 
 // The real Three exporter only needs this browser API for untextured Node tests.
 globalThis.FileReader=class {
@@ -65,4 +66,40 @@ test('repeated editor save/load keeps the scene hierarchy and shared material co
   asset.root.position.x=2;
   const transformed=await new GLTFLoader().parseAsync(await new ExportManager(asset).binary(),'');
   assert.ok(Math.abs(assetBounds(transformed.scene).min.x-assetBounds(asset.root).min.x)<1e-5,'A transformed scene container must retain its whole-asset transform');
+});
+
+
+test('GLB export permanently compacts erased triangles and unused vertices; Undo remains reversible', async () => {
+  const root = new THREE.Group(), geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    0, 0, 0, 1, 0, 0, 0, 1, 0,
+    10, 0, 0, 11, 0, 0, 10, 1, 0,
+    99, 99, 99 // Unused vertex should not appear in the compacted export.
+  ], 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute([
+    0, 0, 1, 0, 0, 1,
+    .2, .3, .8, .3, .2, .9,
+    0, 0
+  ], 2));
+  geometry.setIndex([0, 1, 2, 3, 4, 5]);
+  geometry.addGroup(0, 3, 0);
+  geometry.addGroup(3, 3, 1);
+  const materials = [new THREE.MeshStandardMaterial({color: '#ff0000'}), new THREE.MeshStandardMaterial({color: '#00ff00'})];
+  const mesh = new THREE.Mesh(geometry, materials); root.add(mesh); root.updateMatrixWorld(true);
+  const asset = { root, meshes: [mesh], animations: [], on() {} }, history = new HistoryManager();
+  const shape = { kind: 'erase', radius: .75, hover() {}, brush: { visible: false } };
+  const eraser = new EraseTool(history, asset, shape);
+  const original = Array.from(geometry.index.array);
+  assert.ok(eraser.begin(new THREE.Vector3(.3, .3, 0), 1)); eraser.end();
+  assert.equal(geometry.index.count, 6, 'Editable source retains original topology for undo');
+  const exported = await new ExportManager(asset, eraser).binary();
+  const imported = await new GLTFLoader().parseAsync(exported, '');
+  const loaded = []; imported.scene.traverse(n => { if (n.isMesh) loaded.push(n); });
+  assert.equal(loaded.length, 1);
+  assert.equal(loaded[0].geometry.index.count, 3, 'Only one surviving triangle in exported GLB');
+  assert.equal(loaded[0].geometry.attributes.position.count, 3, 'Unreferenced vertices are removed');
+  assert.deepEqual(Array.from(loaded[0].geometry.attributes.uv.array), [.2, .3, .8, .3, .2, .9].map(Math.fround));
+  assert.ok(Math.abs(loaded[0].material.color.g - 1) < .0001, 'Second material group survives');
+  history.undo(); assert.deepEqual(Array.from(geometry.index.array), original);
+  history.redo(); assert.equal(geometry.index.array[1], geometry.index.array[0]);
 });
