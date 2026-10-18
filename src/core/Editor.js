@@ -8,6 +8,8 @@ import { SessionManager } from './SessionManager.js';
 import { TransformTool } from '../tools/TransformTool.js';
 import { MaterialEditor } from '../tools/MaterialEditor.js';
 import { DeformationTool } from '../tools/DeformationTool.js';
+import { EraseTool } from '../tools/EraseTool.js';
+import { pick } from './picking.js';
 import { UIManager } from '../ui/UIManager.js';
 import { VRInteractionManager } from '../xr/VRInteractionManager.js';
 import { createDemo } from './demo.js';
@@ -19,7 +21,7 @@ export class Editor {
     this.ui=new UIManager(this,root);this.workshop=new Workshop(root.querySelector('#viewport'));
     this.asset=new AssetManager(this.workshop.offset,this.workshop.renderer);this.selection=new SelectionManager(this.asset,this.workshop.scene,this.history);
     this.materials=new MaterialEditor(this.history);this.shape=new DeformationTool(this.history,this.workshop.scene);this.transform=new TransformTool(this);
-    this.exporter=new ExportManager(this.asset);this.sessions=new SessionManager(this);this.xr=new VRInteractionManager(this);
+    this.eraser=new EraseTool(this.history,this.asset,this.shape);this.shape.eraser=this.eraser;this.exporter=new ExportManager(this.asset,this.eraser);this.sessions=new SessionManager(this);this.xr=new VRInteractionManager(this);
     this.ray=new THREE.Raycaster();this.pointer=new THREE.Vector2();this.dragPlane=new THREE.Plane();this.dragPoint=new THREE.Vector3();this.cameraDirection=new THREE.Vector3();
     this.asset.on('beforechange',()=>{this.materials.end();this.shape.end(true);clearTimeout(this.sessions.timer);this.history.clear();this.transform.controls.detach();});
     this.asset.on('loaded',()=>{this.workshop.setAssetBounds(this.asset.info.bounds);this.ui.materialIndex=0;this.ui.expanded.clear();this.selection.select(this.asset.meshes[0]||this.asset.root);this.ui.render();this.xr.panel.invalidate();});
@@ -38,7 +40,7 @@ export class Editor {
   pick(clientX,clientY) {
     const rect=this.workshop.renderer.domElement.getBoundingClientRect();this.pointer.set((clientX-rect.left)/rect.width*2-1,-(clientY-rect.top)/rect.height*2+1);
     this.ray.setFromCamera(this.pointer,this.workshop.camera);
-    return this.ray.intersectObjects(this.asset.meshes,false).find(h=>this.selection.isVisible(h.object));
+    return pick(this.ray,this.asset.meshes,m=>this.selection.isVisible(m))[0];
   }
   bindPointer() {
     const canvas=this.workshop.renderer.domElement,controls=this.workshop.controls;controls.mouseButtons.RIGHT=THREE.MOUSE.ROTATE;
@@ -57,7 +59,7 @@ export class Editor {
     },true);
     canvas.addEventListener('pointermove',event=>{
       if(this.busy||this.workshop.renderer.xr.isPresenting)return;
-      if(this.shape.active){event.stopImmediatePropagation();this.pick(event.clientX,event.clientY);if(this.ray.ray.intersectPlane(this.dragPlane,this.dragPoint)){this.shape.update(this.dragPoint);this.selection.update();}return;}
+      if(this.shape.active){event.stopImmediatePropagation();const hit=this.pick(event.clientX,event.clientY);this.shape.hitPoint=hit?.point||null;if(this.shape.erasing||this.ray.ray.intersectPlane(this.dragPlane,this.dragPoint)){this.shape.update(this.dragPoint);this.selection.update();}return;}
       if(this.mode==='shape'){const hit=this.pick(event.clientX,event.clientY);this.shape.hover(hit?.point,this.workshop.viewScale);canvas.style.cursor=hit?'crosshair':'grab';}
     },true);
     canvas.addEventListener('pointerup',event=>{
@@ -101,6 +103,12 @@ export class Editor {
     } catch(error){this.ui.toast(`Export failed: ${error.message}`,true);console.error('Export:',error);}
     finally {this.setBusy(false);}
   }
+  exportErase() {
+    const list=this.exporter.eraseList(this.eraser.ops);
+    if(!list.ops.length){this.ui.toast('Nothing erased yet. Use the Erase brush first.');return;}
+    downloadBlob(new Blob([JSON.stringify(list)],{type:'application/json'}),list.asset.replace(/\.(glb|gltf)$/i,'').replace(/-edited$/i,'')+'-erase.json');
+    this.ui.toast(`Erase list saved · ${list.ops.length} dabs${list.movedParts?` · ${list.movedParts} parts were moved, so positions may not match the original file`:''}`,!!list.movedParts);
+  }
   async action(action) {
     if(this.busy&&!['help','close-help'].includes(action))return;
     if(this.interacting&&!['menu','help','close-help'].includes(action)){this.ui.toast('Release your current grab first.');return;}
@@ -108,6 +116,7 @@ export class Editor {
       switch(action) {
         case 'import':if(this.workshop.renderer.xr.isPresenting){await this.workshop.renderer.xr.getSession().end();this.ui.toast('Choose Import model to open your Quest files.');}else this.ui.root.querySelector('#file-input').click();break;
         case 'export':await this.exportGLB();break;
+        case 'export-erase':this.exportErase();break;
         case 'vr':await this.xr.enter();break;
         case 'object':case 'shape':this.setMode(action);break;
         case 'translate':case 'rotate':case 'scale':this.setMode('object');this.transformMode=action;this.transform.setMode(action);this.ui.renderToolbar();break;

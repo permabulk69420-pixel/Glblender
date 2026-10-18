@@ -168,8 +168,14 @@ export class VRPanel {
   drawShape(n,locked) {
     const e=this.e,s=e.shape,disabled=!isEditableMesh(n)||locked;
     this.row(['pull','stretch','squash'].map(kind=>({id:kind,label:kind[0].toUpperCase()+kind.slice(1),active:s.kind===kind,fn:()=>{s.kind=kind;this.invalidate();e.ui.renderInspector();}})),229);
-    this.row(['flatten','bend'].map(kind=>({id:kind,label:kind[0].toUpperCase()+kind.slice(1),active:s.kind===kind,fn:()=>{s.kind=kind;this.invalidate();e.ui.renderInspector();}})),293);
+    this.row(['flatten','bend','erase','restore'].map(kind=>({id:kind,label:kind[0].toUpperCase()+kind.slice(1),active:s.kind===kind,fn:()=>{s.kind=kind;this.invalidate();e.ui.renderInspector();}})),293);
     this.slider('radius','Brush radius · asset metres',s.radius,.01,10,386,v=>{s.radius=v;this.invalidate();},{log:true});
+    if(s.erasing){
+      this.text(s.kind==='erase'?'Hold trigger and sweep the brush over what you want gone.':'Hold trigger to bring erased surface back.',32,478,20,MUTED);
+      this.text(`${e.eraser.count} dabs so far · A / B undo / redo`,32,518,20,'#82998c');
+      this.row([{id:'export-erase',label:'Export erase list',disabled:!e.eraser.count,fn:()=>e.action('export-erase')}],580);
+      this.text(disabled?'Select a mesh to start.':'Right stick up/down: brush radius.',32,758,20,disabled?'#d6b18a':MUTED);return;
+    }
     this.slider('strength','Strength',s.strength,.05,2,473,v=>{s.strength=v;this.invalidate();});
     this.text('Stretch / bend axis',32,561,21,MUTED);
     this.row(['X','Y','Z'].map(axis=>({id:'shape-'+axis,label:axis,active:s.axis===axis,fn:()=>{s.axis=axis;this.invalidate();e.ui.renderInspector();}})),580);

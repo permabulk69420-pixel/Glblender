@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { VRPanel } from './VRPanel.js';
 import { twoHandMatrix } from './manipulation.js';
 import { transformState, applyTransform } from '../core/utils.js';
+import { pick } from '../core/picking.js';
 
 export class VRInteractionManager {
   constructor(editor) {
@@ -37,7 +38,7 @@ export class VRInteractionManager {
     hand.controller.updateWorldMatrix(true,false);hand.grip.updateWorldMatrix(true,false);
     hand.ray.ray.origin.setFromMatrixPosition(hand.controller.matrixWorld);hand.ray.ray.direction.set(0,0,-1).transformDirection(hand.controller.matrixWorld);
     hand.menuHit=this.panel.hit(hand.ray);
-    hand.hit=hand.menuHit?null:hand.ray.intersectObjects(this.e.asset.meshes,false).find(h=>this.e.selection.isVisible(h.object))||null;
+    hand.hit=hand.menuHit?null:pick(hand.ray,this.e.asset.meshes,m=>this.e.selection.isVisible(m))[0]||null;
     return hand.menuHit||hand.hit;
   }
   haptic(hand) {hand.source?.gamepad?.hapticActuators?.[0]?.pulse(.25,30)?.catch?.(()=>{});}
@@ -125,8 +126,8 @@ export class VRInteractionManager {
     for(const hand of this.hands) {
       if(!hand.source)continue;
       this.buttons(hand,time,dt);
-      if(hand.sculpt){hand.grip.getWorldPosition(hand.position);this.e.shape.update(hand.position,time);}
-      if(time-hand.lastRay>33||hand.ui){this.raycast(hand);hand.lastRay=time;}
+      if(hand.sculpt){hand.grip.getWorldPosition(hand.position);this.e.shape.hitPoint=hand.hit?.point||null;this.e.shape.update(hand.position,time);}
+      if(time-hand.lastRay>33||hand.ui||hand.sculpt){this.raycast(hand);hand.lastRay=time;}
       const hit=hand.menuHit||hand.hit;hand.line.scale.z=hit?.distance||2.4;hand.dot.visible=!!hit&&!hand.grabbing;
       if(hit)hand.dot.position.copy(hit.point);if(hand.menuHit)hover=hand.menuHit;
       if(hand.ui)this.panel.move(hand.index,hand.menuHit);
