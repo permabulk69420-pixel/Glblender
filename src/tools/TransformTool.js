@@ -12,7 +12,7 @@ export class TransformTool {
   }
   attach() {
     const e=this.editor,n=e.selection.selected;
-    if(n&&e.mode==='object'&&!e.selection.isLocked(n)&&e.selection.isVisible(n)&&!e.workshop.renderer.xr.isPresenting)this.controls.attach(n);else this.controls.detach();
+    if(n&&!e.selection.grouping&&e.mode==='object'&&!e.selection.isLocked(n)&&e.selection.isVisible(n)&&!e.workshop.renderer.xr.isPresenting)this.controls.attach(n);else this.controls.detach();
   }
   setMode(mode) {this.controls.setMode(mode);}
   setConstraint(axis) {this.controls.showX=axis==='FREE'||axis==='X';this.controls.showY=axis==='FREE'||axis==='Y';this.controls.showZ=axis==='FREE'||axis==='Z';}

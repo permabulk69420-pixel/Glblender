@@ -49,8 +49,9 @@ export class VRInteractionManager {
       if(hand.hit){if(this.panel.matchColourFromHit(hand.hit))this.haptic(hand);}else this.panel.message('Point at the source part and press trigger');
       return;
     }
+    if(e.selection.grouping){try{if(e.selection.choose(hand.hit?.object||null))this.haptic(hand);}catch(error){this.panel.message(error.message);}return;}
     if(!hand.hit){e.selection.select(null);return;}
-    e.selection.select(hand.hit.object);this.haptic(hand);
+    if(e.mode==='shape')e.selection.select(hand.hit.object);else e.selection.choose(hand.hit.object);this.haptic(hand);
     if(e.mode==='shape'&&!e.selection.isLocked()) {
       try{hand.grip.getWorldPosition(hand.position);if(e.shape.begin(hand.hit.object,hand.hit.point,hand.position,e.workshop.viewScale,hand.hit.face?.normal)){hand.sculpt=true;e.interacting=true;}}
       catch(error){e.ui.toast(error.message,true);}
@@ -59,10 +60,12 @@ export class VRInteractionManager {
   endSculpt(hand) {this.e.shape.end();hand.sculpt=false;this.e.interacting=false;}
   squeeze(hand) {
     const e=this.e;if(e.busy||e.shape.active||hand.ui||this.panel.drag)return;
+    if(e.selection.grouping){this.panel.message('Choose Create group before grabbing these parts');return;}
     if(this.panel.colourMatchArmed){this.panel.message('Use trigger to sample the source colour');return;}
     if(this.grab){if(!this.grab.hands.includes(hand)&&this.grab.hands.length===1){this.grab.hands[0].grip.getWorldPosition(this.a);hand.grip.getWorldPosition(this.b);if(this.a.distanceTo(this.b)<.04)return;this.updateGrab();this.grab.hands.push(hand);hand.grabbing=true;this.rebaseGrab();this.haptic(hand);}return;}
     this.raycast(hand);if(hand.menuHit)return;
-    const selected=e.selection.selected,node=selected===e.asset.root?selected:hand.hit?.object||selected;
+    const selected=e.selection.selected,hit=hand.hit?.object;
+    const node=selected&&(selected===e.asset.root||!selected.isMesh&&hit&&e.selection.ancestor(hit,selected))?selected:e.selection.groupTarget(hit)||selected;
     if(!node||e.selection.isLocked(node)||!e.selection.isVisible(node))return;
     e.selection.select(node);hand.grabbing=true;e.interacting=true;
     this.grab={node,hands:[hand],before:transformState(node)};this.rebaseGrab();this.haptic(hand);

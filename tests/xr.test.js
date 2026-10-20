@@ -6,6 +6,7 @@ import { HistoryManager } from '../src/core/HistoryManager.js';
 import { SelectionManager } from '../src/core/SelectionManager.js';
 import { MaterialEditor } from '../src/tools/MaterialEditor.js';
 import { Events } from '../src/core/events.js';
+import { Editor } from '../src/core/Editor.js';
 import { transformState } from '../src/core/utils.js';
 
 // Synthetic poses exercise the production XR event handlers. This verifies
@@ -55,4 +56,34 @@ test('VR material slider uses one undo step and blocks conflicting grabs',()=>{
   const hit=x=>({uv:new THREE.Vector2(x/768,1-(region.y+region.h/2)/1060)});
   panel.down(0,hit(region.x+region.w*.2));assert.equal(e.interacting,true);manager.squeeze(manager.hands[1]);assert.equal(manager.grab,null);
   panel.move(0,hit(region.x+region.w*.35));panel.up(0);near(mesh.material.roughness,.35);assert.equal(history.undoStack.length,1);assert.equal(e.interacting,false);history.undo();near(mesh.material.roughness,1);
+});
+test('Quest triggers add/remove group members; a grip on a member moves the finished group',()=>{
+  const {e,manager,mesh,grips,scene,history}=setup(),other=new THREE.Mesh(new THREE.BoxGeometry(),new THREE.MeshStandardMaterial());other.position.set(2,.5,-1);e.asset.root.add(other);e.asset.meshes.push(other);e.asset.nodes.push(other);
+  let pointed=mesh;manager.raycast=hand=>{hand.menuHit=null;hand.hit=pointed?{object:pointed}:null;};
+  e.selection.beginGroup();manager.selectStart(manager.hands[0]);assert.equal(e.selection.groupParts.size,0);
+  manager.selectStart(manager.hands[0]);pointed=other;manager.selectStart(manager.hands[0]);assert.equal(e.selection.groupParts.size,2);
+  pointed=null;manager.selectStart(manager.hands[0]);assert.equal(e.selection.groupParts.size,2);
+  manager.squeeze(manager.hands[0]);assert.equal(manager.grab,null);
+  const group=e.selection.finishGroup(),before=transformState(group),a=mesh.getWorldPosition(new THREE.Vector3()),b=other.getWorldPosition(new THREE.Vector3());
+  e.selection.select(null);pointed=mesh;manager.selectStart(manager.hands[0]);assert.equal(e.selection.selected,group);
+  e.selection.select(mesh); // Pointing at a tree-selected member still grabs its group.
+  manager.squeeze(manager.hands[0]);assert.equal(manager.grab.node,group);grips[0].position.x+=.18;scene.updateMatrixWorld(true);manager.updateGrab();manager.release(manager.hands[0]);
+  near(mesh.getWorldPosition(new THREE.Vector3()).x,a.x+.18);near(other.getWorldPosition(new THREE.Vector3()).x,b.x+.18);assert.equal(history.undoStack.length,2);
+  history.undo();same(transformState(group),before);history.undo();assert.equal(mesh.parent,e.asset.root);assert.equal(other.parent,e.asset.root);
+});
+test('VR grouping controls fit within the Edit and Parts panel content area',()=>{
+  const {e,manager,mesh}=setup();e.selection.beginGroup();manager.panel.draw();
+  assert.ok(manager.panel.regions.find(r=>r.id==='group-finish').disabled);assert.ok(manager.panel.regions.find(r=>r.id==='group-cancel'));
+  manager.panel.tab='parts';manager.panel.draw();const parts=manager.panel.regions.filter(r=>r.id.startsWith('part-'));
+  assert.ok(parts.length>0);assert.ok(parts.every(r=>r.y>=292&&r.y+r.h<726));assert.ok(manager.panel.regions.find(r=>r.id==='wholeparts').disabled);
+  assert.equal(e.selection.groupParts.has(mesh),true);
+  manager.panel.regions.find(r=>r.id==='tab-animation').down();assert.equal(e.selection.grouping,false);assert.equal(e.selection.selected,mesh);
+});
+test('VR Group parts and Create group buttons invoke the production editor actions',async()=>{
+  const {e,manager,mesh}=setup(),other=new THREE.Mesh(new THREE.BoxGeometry());e.asset.root.add(other);
+  e.ui.toast=()=>{};e.action=action=>Editor.prototype.action.call(e,action);
+  const panel=manager.panel;panel.draw();await panel.regions.find(r=>r.id==='group-start').down();
+  assert.equal(e.selection.grouping,true);assert.equal(e.selection.groupParts.has(mesh),true);
+  e.selection.choose(other);panel.draw();const finish=panel.regions.find(r=>r.id==='group-finish');assert.equal(finish.disabled,false);await finish.down();
+  assert.equal(e.selection.grouping,false);assert.equal(e.selection.selected.userData.glblenderGroup,true);assert.equal(e.selection.selected.children.length,2);
 });

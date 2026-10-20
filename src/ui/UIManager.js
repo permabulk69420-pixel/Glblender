@@ -23,6 +23,7 @@ export class UIManager {
           <div class="panel-heading"><h2>Components</h2><span id="mesh-count" class="badge">0</span>${btn('show-all','Show all','eye','icon-only')}</div>
           <label class="search-box">${icon('search')}<input id="component-search" placeholder="Find a component…" aria-label="Find a component"/></label>
           <div class="asset-row"><span class="file-icon">${icon('cube')}</span><div><strong id="asset-name">Loading workshop</strong><small id="asset-kind">LOCAL ASSET</small></div>${btn('sample','Open sample','rotate','icon-only')}</div>
+          <div class="group-controls">${btn('group-start','Group parts','layers')}${btn('group-finish','Create group','layers','primary')}${btn('group-cancel','Cancel',null)}<p id="group-selection-hint" hidden></p></div>
           <div id="tree" class="component-tree" role="tree" aria-label="Scene hierarchy"></div>
           <section class="asset-inspection"><div class="section-label">ASSET INSPECTION</div><div id="stats" class="stats"></div><div id="dimensions" class="dimensions"></div><div id="asset-warnings"></div></section>
           <div class="local-note">${icon('lock')}<span>Your files stay on this device.</span></div>
@@ -49,6 +50,7 @@ export class UIManager {
       <input id="file-input" type="file" multiple accept=".glb,.gltf,.bin,.png,.jpg,.jpeg,.webp,.ktx2" hidden/>
       <dialog id="help-dialog"><div class="dialog-head"><div><span class="eyebrow">WORKSHOP GUIDE</span><h2>Make it yours.</h2></div>${btn('close-help','Close','close','icon-only')}</div>
         <p>Import a GLB, select a component, and shape or finish it. Everything happens locally in your browser.</p>
+        <p><strong>Group parts:</strong> press Group parts in the component browser or the VR Edit/Parts panel. Click or trigger each part to add/remove it, then choose Create group. Grab a member to move the entire group. On desktop, G starts/finishes grouping and Escape cancels it.</p>
         <div class="help-columns"><section><h3>Quest controllers</h3><dl><dt>Trigger</dt><dd>Point to select. In Shape mode, hold and pull.</dd><dt>Grip</dt><dd>Grab the pointed or selected component.</dd><dt>Both grips</dt><dd>Scale and rotate the grabbed component.</dd><dt>Left stick</dt><dd>Move through the workshop.</dd><dt>Right stick</dt><dd>Adjust brush radius in Shape; turn in Object.</dd><dt>A / B</dt><dd>Undo / redo.</dd><dt>X / Y</dt><dd>Switch Object/Shape / show the menu.</dd></dl></section>
         <section><h3>Desktop</h3><dl><dt>Click</dt><dd>Select a part. Drag a gizmo to transform.</dd><dt>W / E / R</dt><dd>Move / rotate / scale.</dd><dt>Right drag</dt><dd>Orbit (also in Shape mode).</dd><dt>Shift + drag</dt><dd>Pan. Scroll to zoom.</dd><dt>Ctrl Z / Shift Z</dt><dd>Undo / redo. Ctrl Y also redoes.</dd><dt>F / Esc</dt><dd>Frame asset / deselect or cancel stroke.</dd><dt>Shape mode</dt><dd>Drag the surface to pull, stretch, squash or flatten.</dd></dl></section></div>
         <p><strong>Quest file access:</strong> use Import model in the browser before entering VR. The in-VR Import action returns you here to choose a file. Export returns to the browser for the download.</p>
@@ -61,7 +63,7 @@ export class UIManager {
     this.root.addEventListener('click',event=>{
       const b=event.target.closest('button');if(!b)return;
       if(b.dataset.action){this.e.action(b.dataset.action);return;}
-      if(b.dataset.select){this.e.selection.select(this.e.asset.getNode(b.dataset.select));return;}
+      if(b.dataset.select){try{this.e.selection.choose(this.e.asset.getNode(b.dataset.select),true);}catch(error){this.toast(error.message,true);}return;}
       if(b.dataset.expand){this.expanded.has(b.dataset.expand)?this.expanded.delete(b.dataset.expand):this.expanded.add(b.dataset.expand);this.renderTree();return;}
       if(b.dataset.visibility){this.e.selection.hide(this.e.asset.getNode(b.dataset.visibility));return;}
       if(b.dataset.constraint){this.e.constraint=b.dataset.constraint;this.e.transform.setConstraint(this.e.constraint);this.renderToolbar();return;}
@@ -105,7 +107,8 @@ export class UIManager {
     const draw=(n,depth=0)=>{
       const match=!this.filter||displayName(n).toLowerCase().includes(this.filter)||n.children.some(c=>displayName(c).toLowerCase().includes(this.filter));
       const expandable=n.children.length>0,open=this.expanded.has(n.uuid)||n===asset.root||!!this.filter;
-      const row=match?`<div class="tree-row ${e.selection.selected===n?'selected':''} ${!e.selection.isVisible(n)?'muted':''}" role="treeitem" aria-selected="${e.selection.selected===n}" style="--depth:${Math.min(depth,5)}">
+      const selected=e.selection.grouping?e.selection.isGroupPart(n):e.selection.selected===n;
+      const row=match?`<div class="tree-row ${selected?'selected':''} ${!e.selection.isVisible(n)?'muted':''}" role="treeitem" aria-selected="${selected}" style="--depth:${Math.min(depth,5)}">
         <button class="disclosure ${open?'open':''}" ${expandable?`data-expand="${n.uuid}"`:'disabled'} aria-label="${open?'Collapse':'Expand'} ${esc(displayName(n))}">${expandable?icon('chevron'):''}</button>
         <button class="node-select" data-select="${n.uuid}" title="${esc(displayName(n))}">${icon(n.isMesh?'cube':'layers')}<span>${esc(displayName(n))}</span>${e.selection.isLocked(n)?'<span class="locked-mark">'+icon('lock')+'</span>':''}</button>
         <button class="visibility-button ${n.userData.glblenderHidden?'hidden-state':''}" data-visibility="${n.uuid}" aria-label="${n.userData.glblenderHidden?'Show':'Hide'} ${esc(displayName(n))}" title="${n.userData.glblenderHidden?'Show':'Hide'}">${icon('eye')}</button></div>`:'';
@@ -131,10 +134,16 @@ export class UIManager {
     this.root.querySelector('[data-action="undo"]').disabled=!e.history.canUndo||e.busy;
     this.root.querySelector('[data-action="redo"]').disabled=!e.history.canRedo||e.busy;
     this.root.querySelector('.viewport-tools').classList.toggle('shape-tools-muted',e.mode==='shape');
-    this.root.querySelector('#interaction-hint').textContent=e.mode==='shape'?'Hold and drag the surface to shape · right-drag to orbit':'Click a part to select · drag to orbit · scroll to zoom';
+    const grouping=!!e.selection?.grouping,count=e.selection?.groupParts.size||0;
+    for(const b of this.root.querySelectorAll('[data-action="group-start"]')){b.hidden=grouping;b.disabled=e.busy||!e.asset?.root;}
+    for(const b of this.root.querySelectorAll('[data-action="group-finish"]')){b.hidden=!grouping;b.disabled=e.busy||count<2;b.querySelector('span').textContent=`Create group (${count})`;}
+    for(const b of this.root.querySelectorAll('[data-action="group-cancel"]'))b.hidden=!grouping;
+    const groupHint=this.root.querySelector('#group-selection-hint');groupHint.hidden=!grouping;groupHint.textContent=`${count} selected. Pick parts to add or remove.`;
+    this.root.querySelector('#interaction-hint').textContent=grouping?'Pick parts to add/remove · G to create group · Esc to cancel':e.mode==='shape'?'Hold and drag the surface to shape · right-drag to orbit':'Click a part to select · drag to orbit · scroll to zoom';
   }
   renderInspector() {
     const e=this.e,n=e.selection.selected,el=this.root.querySelector('#inspector');
+    if(e.selection.grouping){el.innerHTML=`<div class="empty-inspector">${icon('layers')}<h3>${e.selection.groupParts.size} parts selected</h3><p>Pick each part to add or remove it. Selected parts have green outlines. Create the group to move them together.</p></div><div class="selection-actions">${btn('group-finish','Create group','layers','primary')}${btn('group-cancel','Cancel',null)}</div>`;return;}
     if(!n){el.innerHTML=`<div class="empty-inspector">${icon('cube')}<h3>Select a component</h3><p>Point at any part of the model, or choose it from the component browser.</p></div><section class="inspector-section"><h3>Workshop</h3><label class="property-field"><span>Environment brightness</span><input id="environment-brightness" type="range" min=".3" max="1.8" step=".05" value="${e.workshop?.renderer.toneMappingExposure||1.1}"/></label><p class="helper-text">Start with the Kestrel sample, or import your own model.</p></section>`;return;}
     const locked=e.selection.isLocked(),mats=materialsOf(n);this.materialIndex=Math.min(this.materialIndex,Math.max(mats.length-1,0));
     el.innerHTML=`<div class="selected-heading"><div class="selected-icon">${icon('cube')}</div><div><h3>${esc(displayName(n))}</h3><span>${n.isMesh?'Mesh component':'Scene group'}${locked?' · locked':''}</span></div></div>

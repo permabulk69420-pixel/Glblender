@@ -24,8 +24,8 @@ export class Editor {
     this.eraser=new EraseTool(this.history,this.asset,this.shape);this.shape.eraser=this.eraser;this.exporter=new ExportManager(this.asset,this.eraser);this.sessions=new SessionManager(this);this.xr=new VRInteractionManager(this);
     this.ray=new THREE.Raycaster();this.pointer=new THREE.Vector2();this.dragPlane=new THREE.Plane();this.dragPoint=new THREE.Vector3();this.cameraDirection=new THREE.Vector3();
     this.asset.on('beforechange',()=>{this.materials.end();this.shape.end(true);clearTimeout(this.sessions.timer);this.history.clear();this.transform.controls.detach();});
-    this.asset.on('loaded',()=>{this.workshop.setAssetBounds(this.asset.info.bounds);this.ui.materialIndex=0;this.ui.expanded.clear();this.selection.select(this.asset.meshes[0]||this.asset.root);this.ui.render();this.xr.panel.invalidate();});
-    this.selection.on('change',()=>{this.materials.end();for(let p=this.selection.selected?.parent;p;p=p.parent){this.ui.expanded.add(p.uuid);if(p===this.asset.root)break;}this.transform.attach();this.ui.renderTree();this.ui.renderInspector();this.xr.panel.invalidate();});
+    this.asset.on('loaded',()=>{this.workshop.setAssetBounds(this.asset.info.bounds);this.ui.materialIndex=0;this.ui.expanded.clear();this.selection.choose(this.asset.meshes[0]||this.asset.root);this.ui.render();this.xr.panel.invalidate();});
+    this.selection.on('change',()=>{this.materials.end();for(let p=this.selection.selected?.parent;p;p=p.parent){this.ui.expanded.add(p.uuid);if(p===this.asset.root)break;}this.transform.attach();this.ui.renderTree();this.ui.renderInspector();this.ui.renderToolbar();this.xr.panel.invalidate();});
     this.history.on('change',label=>{
       if(!this.asset.root)return;this.asset.refresh();
       if(this.selection.selected&&!this.selection.ancestor(this.selection.selected,this.asset.root))this.selection.select(null);
@@ -47,7 +47,7 @@ export class Editor {
     canvas.addEventListener('pointerdown',event=>{
       if(this.busy||this.workshop.renderer.xr.isPresenting)return;
       this.pointerStart={x:event.clientX,y:event.clientY,gizmo:!!this.transform.controls.axis,button:event.button};
-      if(this.mode!=='shape'||event.button!==0||event.shiftKey||event.altKey)return;
+      if(this.selection.grouping||this.mode!=='shape'||event.button!==0||event.shiftKey||event.altKey)return;
       const hit=this.pick(event.clientX,event.clientY);if(!hit)return;
       event.preventDefault();event.stopImmediatePropagation();this.selection.select(hit.object);
       if(this.selection.isLocked()){this.ui.toast('Unlock this component before editing.');return;}
@@ -66,7 +66,7 @@ export class Editor {
       if(this.shape.active){event.stopImmediatePropagation();this.shape.end();this.interacting=false;controls.enabled=true;if(canvas.hasPointerCapture(event.pointerId))canvas.releasePointerCapture(event.pointerId);this.pointerStart=null;return;}
       const down=this.pointerStart;this.pointerStart=null;
       if(this.busy||!down||down.gizmo||down.button!==0||Math.hypot(event.clientX-down.x,event.clientY-down.y)>5||this.transform.controls.dragging)return;
-      this.selection.select(this.pick(event.clientX,event.clientY)?.object||null);
+      try{const node=this.pick(event.clientX,event.clientY)?.object||null;if(this.mode==='shape'&&!this.selection.grouping)this.selection.select(node);else this.selection.choose(node);}catch(error){this.ui.toast(error.message,true);}
     },true);
     canvas.addEventListener('pointercancel',()=>this.cancelStroke());
     canvas.addEventListener('pointerleave',()=>{if(!this.shape.active)this.shape.hover(null);});
@@ -80,13 +80,13 @@ export class Editor {
       if(/INPUT|TEXTAREA|SELECT/.test(event.target.tagName)||this.busy)return;
       const key=event.key.toLowerCase(),mod=event.ctrlKey||event.metaKey;
       if(mod&&(key==='z'||key==='y')){event.preventDefault();if(this.interacting)return;this.action(key==='y'||event.shiftKey?'redo':'undo');return;}
-      if(key==='escape'){this.cancelStroke();this.selection.select(null);return;}
+      if(key==='escape'){this.cancelStroke();if(this.selection.grouping)this.selection.cancelGroup();else this.selection.select(null);return;}
       if(this.interacting)return;
-      const map={w:'translate',e:'rotate',r:'scale',f:'frame',delete:'delete',h:'hide',i:'isolate'};if(map[key]){event.preventDefault();this.action(map[key]);}
+      const map={w:'translate',e:'rotate',r:'scale',f:'frame',delete:'delete',h:'hide',i:'isolate',g:this.selection.grouping?'group-finish':'group-start'};if(map[key]){event.preventDefault();this.action(map[key]);}
     });
   }
   cancelStroke() {if(this.shape.active)this.shape.end(true);this.interacting=false;if(!this.workshop.renderer.xr.isPresenting)this.workshop.controls.enabled=true;}
-  setMode(mode) {if(this.interacting)return;this.mode=mode;if(mode==='shape')this.ui.inspectorTab='shape';else if(this.ui.inspectorTab==='shape')this.ui.inspectorTab='transform';this.shape.hover(null);this.transform.attach();this.ui.renderToolbar();this.ui.renderInspector();this.xr.panel.invalidate();}
+  setMode(mode) {if(this.interacting)return;if(mode==='shape')this.selection.cancelGroup();this.mode=mode;if(mode==='shape')this.ui.inspectorTab='shape';else if(this.ui.inspectorTab==='shape')this.ui.inspectorTab='transform';this.shape.hover(null);this.transform.attach();this.ui.renderToolbar();this.ui.renderInspector();this.xr.panel.invalidate();}
   setMaterial(key,value,commit=false) {const n=this.selection.selected;if(!n?.isMesh||this.selection.isLocked())return;this.materials.set(n,this.ui.materialIndex,key,value);if(commit)this.materials.end();this.xr.panel.invalidate();}
   async importFiles(files) {if(this.busy||this.interacting)return;this.setBusy(true,'Opening your model…');try{await this.asset.loadFiles(files);this.ui.root.querySelector('#recovery-banner').hidden=true;this.ui.toast(`Loaded ${this.asset.meshes.length} components`);this.sessions.schedule();}catch(error){this.ui.toast(error.message,true);console.error('Import:',error);}finally{this.setBusy(false);}}
   async importBuffer(data,name) {this.setBusy(true,'Recovering your model…');try{await this.asset.parse(data,name);this.ui.root.querySelector('#recovery-banner').hidden=true;}finally{this.setBusy(false);}}
@@ -120,8 +120,11 @@ export class Editor {
         case 'vr':await this.xr.enter();break;
         case 'object':case 'shape':this.setMode(action);break;
         case 'translate':case 'rotate':case 'scale':this.setMode('object');this.transformMode=action;this.transform.setMode(action);this.ui.renderToolbar();break;
-        case 'undo':this.materials.end();this.history.undo();break;
-        case 'redo':this.materials.end();this.history.redo();break;
+        case 'undo':this.selection.cancelGroup();this.materials.end();this.history.undo();break;
+        case 'redo':this.selection.cancelGroup();this.materials.end();this.history.redo();break;
+        case 'group-start':this.xr.panel.cancelColourMatch();this.xr.panel.stopAnimation();this.setMode('object');this.selection.beginGroup();this.ui.toast('Pick parts to add or remove, then choose Create group.');break;
+        case 'group-finish':{const count=this.selection.groupParts.size;this.selection.finishGroup();this.ui.toast(`${count} parts grouped. Grab any member to move the group.`);break;}
+        case 'group-cancel':this.selection.cancelGroup();break;
         case 'hide':this.selection.hide();break;
         case 'show-all':this.selection.showAll();break;
         case 'isolate':this.selection.isolate();break;
