@@ -35,6 +35,8 @@ The in-VR Import button returns to the browser for the normal file picker. Brows
 
 Choose **Select whole asset** to manipulate the full assembly. The Free/X/Y/Z constraint limits one-hand translation in the component's local axes. Free mode also follows wrist rotation; two hands perform uniform scale and rotation. Part scaling changes the exported model; **view scaling does not**.
 
+To move several parts together, press **Group parts** in the VR **Edit** or **Parts** tab (or the desktop component browser). The current part starts the selection. Trigger/click other parts to add them; pick one again to remove it. Green outlines mark the selection. Choose **Create group**, then grab any member to move, rotate or scale the group. Groups survive GLB export and reimport, and creation is one undo step. Use the Parts list/tree to select an individual member. Locked and rigged parts cannot be added. Cancel leaves the model untouched.
+
 ## Desktop controls
 
 | Input | Action |
@@ -44,10 +46,11 @@ Choose **Select whole asset** to manipulate the full assembly. The Free/X/Y/Z co
 | Shift + drag | Pan |
 | Mouse wheel | Zoom |
 | W / E / R | Translate / rotate / scale gizmo |
+| G | Start grouping parts / create the selected group |
 | Ctrl/Cmd Z | Undo |
 | Ctrl/Cmd Shift Z or Ctrl/Cmd Y | Redo |
 | F | Frame the asset |
-| Escape | Cancel the current shape stroke or deselect |
+| Escape | Cancel grouping, cancel the current shape stroke or deselect |
 | H / I / Delete | Hide/show / isolate / delete selected component |
 | Left drag on a surface in Shape mode | Deform that region |
 

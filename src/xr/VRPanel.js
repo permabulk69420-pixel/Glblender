@@ -116,8 +116,8 @@ export class VRPanel {
     this.text('Glblender',32,51,30,'#e4efe0','600');this.text(e.mode==='shape'?'SHAPE MODE':'OBJECT MODE',495,49,18,ACCENT,'500');
     this.text(this.truncate(e.asset.filename||'Workshop',49),32,88,18,MUTED);
     const tabs=['edit','material','shape','parts','animation'];
-    this.row(tabs.map(t=>({id:'tab-'+t,label:t==='animation'?'Anim':t[0].toUpperCase()+t.slice(1),active:this.tab===t,fn:()=>{if(t!=='material'&&this.colourMatchArmed)this.cancelColourMatch();if(t!=='animation'&&this.tab==='animation')this.stopAnimation();this.tab=t;if(t==='shape')e.setMode('shape');if(t==='edit')e.setMode('object');this.invalidate();}})),112,{height:48,gap:7});
-    const heading=this.tab==='animation'?`${e.asset.animations.length} animation clip${e.asset.animations.length===1?'':'s'}`:n?this.truncate(displayName(n),37):'Point at a component to select it';
+    this.row(tabs.map(t=>({id:'tab-'+t,label:t==='animation'?'Anim':t[0].toUpperCase()+t.slice(1),active:this.tab===t,fn:()=>{if(t!=='material'&&this.colourMatchArmed)this.cancelColourMatch();if(t!=='animation'&&this.tab==='animation')this.stopAnimation();if(t==='animation')e.selection.cancelGroup();this.tab=t;if(t==='shape')e.setMode('shape');if(t==='edit')e.setMode('object');this.invalidate();}})),112,{height:48,gap:7});
+    const heading=e.selection.grouping?`${e.selection.groupParts.size} parts selected for grouping`:this.tab==='animation'?`${e.asset.animations.length} animation clip${e.asset.animations.length===1?'':'s'}`:n?this.truncate(displayName(n),37):'Point at a component to select it';
     this.text(heading,32,202,23,this.tab==='animation'||n?'#e1e9ed':MUTED,'500');
     if(this.tab==='edit')this.drawEdit(n,locked);
     if(this.tab==='material')this.drawMaterial(n,locked);
@@ -127,14 +127,21 @@ export class VRPanel {
     c.strokeStyle='#35434f';c.beginPath();c.moveTo(32,824);c.lineTo(WIDTH-32,824);c.stroke();
     this.row([{id:'undo',label:'A  Undo',disabled:!e.history.canUndo,fn:()=>e.action('undo')},{id:'redo',label:'B  Redo',disabled:!e.history.canRedo,fn:()=>e.action('redo')}],842);
     this.row([{id:'import',label:'Import model',fn:()=>e.action('import')},{id:'export',label:e.busy?'Preparing…':'Export GLB',primary:true,disabled:e.busy,fn:()=>e.action('export')}],907);
-    if(this.notice){this.text(this.truncate(this.notice,57),32,991,19,ACCENT);}else{this.text('Trigger: select / shape    Grip: grab    Both grips: scale',32,991,18,MUTED);}
+    if(this.notice){this.text(this.truncate(this.notice,57),32,991,19,ACCENT);}else{this.text(e.selection.grouping?'Trigger: add/remove parts    Create group when ready':'Trigger: select / shape    Grip: grab    Both grips: scale',32,991,18,MUTED);}
     this.text('X: Object / Shape    Y: menu    Left stick: move',32,1028,18,'#758d9b');
     this.texture.needsUpdate=true;
   }
   drawEdit(n,locked) {
     const e=this.e;
+    if(e.selection.grouping){
+      this.drawGroupControls(228);
+      this.text('Point at each part and press trigger to add or remove it.',32,322,21,MUTED);
+      this.text('Green outlines show the parts included in this group.',32,365,21,MUTED);
+      this.text('Create the group, then grip any member to move it.',32,420,21,ACCENT);
+      return;
+    }
     this.row([{id:'whole',label:'Select whole asset',active:n===e.asset.root,fn:()=>{e.selection.select(e.asset.root);this.invalidate();}},{id:'deselect',label:'Deselect',fn:()=>e.selection.select(null)}],228);
-    this.text('Grip to move and rotate. Add your other grip to scale.',32,322,21,MUTED);
+    this.drawGroupControls(292);
     this.text('Local movement constraint',32,368,20,MUTED);
     this.row(['FREE','X','Y','Z'].map(axis=>({id:'axis-'+axis,label:axis==='FREE'?'Free':axis,active:e.constraint===axis,fn:()=>{e.constraint=axis;e.transform.setConstraint(axis);e.ui.renderToolbar();this.invalidate();}})),387);
     this.row([{id:'hide',label:n?.userData.glblenderHidden?'Show':'Hide',disabled:!n||locked,fn:()=>e.action('hide')},{id:'isolate',label:e.selection.isolated?'Unisolate':'Isolate',disabled:!n,fn:()=>e.action('isolate')},{id:'lock',label:n?.userData.glblenderLocked?'Unlock':'Lock',disabled:!n,fn:()=>e.action('lock')}],458);
@@ -185,10 +192,18 @@ export class VRPanel {
     this.text('Right stick up/down: brush radius. Grip: reposition.',32,794,19,'#82998c');
   }
   drawParts() {
-    const e=this.e,list=e.asset.nodes.filter(n=>n.isMesh||n.children.length),perPage=8,total=Math.max(1,Math.ceil(list.length/perPage));this.page=Math.min(this.page,total-1);
-    for(let i=0;i<perPage;i++){const n=list[this.page*perPage+i];if(!n)break;this.button('part-'+n.uuid,(n.userData.glblenderHidden?'○ ':'')+this.truncate(displayName(n),40),32,227+i*60,WIDTH-64,49,()=>{e.selection.select(n);e.ui.renderTree();},{active:e.selection.selected===n});}
-    this.row([{id:'prev',label:'Previous',disabled:this.page===0,fn:()=>{this.page--;this.invalidate();}},{id:'wholeparts',label:'Whole asset',fn:()=>e.selection.select(e.asset.root)},{id:'next',label:'Next',disabled:this.page>=total-1,fn:()=>{this.page++;this.invalidate();}}],726);
+    const e=this.e,list=e.asset.nodes.filter(n=>n.isMesh||n.children.length),perPage=7,total=Math.max(1,Math.ceil(list.length/perPage));this.page=Math.min(this.page,total-1);
+    this.drawGroupControls(228);
+    for(let i=0;i<perPage;i++){const n=list[this.page*perPage+i];if(!n)break;this.button('part-'+n.uuid,(n.userData.glblenderHidden?'○ ':'')+this.truncate(displayName(n),40),32,292+i*60,WIDTH-64,49,()=>{try{e.selection.choose(n,true);}catch(error){this.message(error.message);}e.ui.renderTree();},{active:e.selection.grouping?e.selection.isGroupPart(n):e.selection.selected===n});}
+    this.row([{id:'prev',label:'Previous',disabled:this.page===0,fn:()=>{this.page--;this.invalidate();}},{id:'wholeparts',label:'Whole asset',disabled:e.selection.grouping,fn:()=>e.selection.select(e.asset.root)},{id:'next',label:'Next',disabled:this.page>=total-1,fn:()=>{this.page++;this.invalidate();}}],726);
     this.text(`Page ${this.page+1} / ${total} · ${e.asset.meshes.length} meshes`,32,807,19,MUTED);
+  }
+  drawGroupControls(y) {
+    const s=this.e.selection;
+    this.row(s.grouping?[
+      {id:'group-finish',label:`Create group (${s.groupParts.size})`,primary:true,disabled:s.groupParts.size<2,fn:()=>this.e.action('group-finish')},
+      {id:'group-cancel',label:'Cancel grouping',fn:()=>this.e.action('group-cancel')}
+    ]:[{id:'group-start',label:'Group parts',fn:()=>this.e.action('group-start')}],y);
   }
   drawAnimation() {
     this.syncAnimationAsset();const clips=this.e.asset.animations||[];

@@ -146,6 +146,7 @@ export function installVRQuickActions(editor) {
   const originalDrawEdit=panel.drawEdit.bind(panel);
   panel.drawEdit=(node,locked)=>{
     originalDrawEdit(node,locked);
+    if(editor.selection.grouping)return;
     const deletable=!!node&&node!==editor.asset.root&&!editor.selection.isLocked(node);
     panel.button('detach-part','Detach / separate',32,579,340,35,()=>{
       const result=detachSelected(editor,node);
